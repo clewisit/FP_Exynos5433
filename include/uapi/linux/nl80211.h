@@ -682,12 +682,6 @@
  *	(&struct nl80211_vendor_cmd_info) of the supported vendor commands.
  *	This may also be sent as an event with the same attributes.
  *
- * @NL80211_CMD_SET_QOS_MAP: Set Interworking QoS mapping for IP DSCP values.
- *	The QoS mapping information is included in %NL80211_ATTR_QOS_MAP. If
- *	that attribute is not included, QoS mapping is disabled. Since this
- *	QoS mapping is relevant for IP packets, it is only valid during an
- *	association. This is cleared on disassociation and AP restart.
- *
  * @NL80211_CMD_MAX: highest used command number
  * @__NL80211_CMD_AFTER_LAST: internal use
  */
@@ -856,8 +850,6 @@ enum nl80211_commands {
 	NL80211_CMD_CHANNEL_SWITCH,
 
 	NL80211_CMD_VENDOR,
-
-	NL80211_CMD_SET_QOS_MAP,
 
 	/* add new commands above here */
 
@@ -1519,67 +1511,6 @@ enum nl80211_commands {
  * @NL80211_ATTR_VENDOR_SUBCMD: vendor sub-command
  * @NL80211_ATTR_VENDOR_DATA: data for the vendor command, if any; this
  *	attribute is also used for vendor command feature advertisement
- * @NL80211_ATTR_VENDOR_EVENTS: used for event list advertising in the wiphy
- *	info, containing a nested array of possible events
- *
- * @NL80211_ATTR_QOS_MAP: IP DSCP mapping for Interworking QoS mapping. This
- *	data is in the format defined for the payload of the QoS Map Set element
- *	in IEEE Std 802.11-2012, 8.4.2.97.
- *
- * @NL80211_ATTR_MAC_HINT: MAC address recommendation as initial BSS
- * @NL80211_ATTR_WIPHY_FREQ_HINT: frequency of the recommended initial BSS
- * @NL80211_ATTR_MAX_AP_ASSOC_STA: Device attribute that indicates how many
- *	associated stations are supported in AP mode (including P2P GO); u32.
- *	Since drivers may not have a fixed limit on the maximum number (e.g.,
- *	other concurrent operations may affect this), drivers are allowed to
- *	advertise values that cannot always be met. In such cases, an attempt
- *	to add a new station entry with @NL80211_CMD_NEW_STATION may fail.
- *
- * @NL80211_ATTR_TDLS_PEER_CAPABILITY: flags for TDLS peer capabilities, u32.
- *	As specified in the &enum nl80211_tdls_peer_capability.
- *
- * @NL80211_ATTR_SOCKET_OWNER: Flag attribute, if set during interface
- *	creation then the new interface will be owned by the netlink socket
- *	that created it and will be destroyed when the socket is closed.
- *	If set during scheduled scan start then the new scan req will be
- *	owned by the netlink socket that created it and the scheduled scan will
- *	be stopped when the socket is closed.
- *	If set during configuration of regulatory indoor operation then the
- *	regulatory indoor configuration would be owned by the netlink socket
- *	that configured the indoor setting, and the indoor operation would be
- *	cleared when the socket is closed.
- *
- * @NL80211_ATTR_TDLS_INITIATOR: flag attribute indicating the current end is
- *	the TDLS link initiator.
- *
- * @NL80211_ATTR_USE_RRM: flag for indicating whether the current connection
- *	shall support Radio Resource Measurements (11k). This attribute can be
- *	used with %NL80211_CMD_ASSOCIATE and %NL80211_CMD_CONNECT requests.
- *	User space applications are expected to use this flag only if the
- *	underlying device supports these minimal RRM features:
- *		%NL80211_FEATURE_DS_PARAM_SET_IE_IN_PROBES,
- *		%NL80211_FEATURE_QUIET,
- *	If this flag is used, driver must add the Power Capabilities IE to the
- *	association request. In addition, it must also set the RRM capability
- *	flag in the association request's Capability Info field.
- *
- * @NL80211_ATTR_WIPHY_DYN_ACK: flag attribute used to enable ACK timeout
- *	estimation algorithm (dynack). In order to activate dynack
- *	%NL80211_FEATURE_ACKTO_ESTIMATION feature flag must be set by lower
- *	drivers to indicate dynack capability. Dynack is automatically disabled
- *	setting valid value for coverage class.
- *
- * @NL80211_ATTR_TSID: a TSID value (u8 attribute)
- * @NL80211_ATTR_USER_PRIO: user priority value (u8 attribute)
- * @NL80211_ATTR_ADMITTED_TIME: admitted time in units of 32 microseconds
- *	(per second) (u16 attribute)
- *
- * @NL80211_ATTR_SMPS_MODE: SMPS mode to use (ap mode). see
- *	&enum nl80211_smps_mode.
- *
- * @NL80211_ATTR_OPER_CLASS: operating class
- *
- * @NL80211_ATTR_MAC_MASK: MAC address mask
  *
  * @NL80211_ATTR_MAX: highest attribute number currently defined
  * @__NL80211_ATTR_AFTER_LAST: internal use
@@ -1938,6 +1869,17 @@ enum nl80211_attrs {
 
 	NL80211_ATTR_MAC_MASK,
 	/* add attributes here, update the policy in nl80211.c */
+
+	NL80211_ATTR_HANDLE_DFS,
+
+	NL80211_ATTR_SUPPORT_5_MHZ,
+	NL80211_ATTR_SUPPORT_10_MHZ,
+
+	NL80211_ATTR_OPMODE_NOTIF,
+
+	NL80211_ATTR_VENDOR_ID,
+	NL80211_ATTR_VENDOR_SUBCMD,
+	NL80211_ATTR_VENDOR_DATA,
 
 	__NL80211_ATTR_AFTER_LAST,
 	NL80211_ATTR_MAX = __NL80211_ATTR_AFTER_LAST - 1
@@ -4086,22 +4028,6 @@ enum nl80211_crit_proto_id {
 struct nl80211_vendor_cmd_info {
 	__u32 vendor_id;
 	__u32 subcmd;
-};
-
-/**
- * enum nl80211_tdls_peer_capability - TDLS peer flags.
- *
- * Used by tdls_mgmt() to determine which conditional elements need
- * to be added to TDLS Setup frames.
- *
- * @NL80211_TDLS_PEER_HT: TDLS peer is HT capable.
- * @NL80211_TDLS_PEER_VHT: TDLS peer is VHT capable.
- * @NL80211_TDLS_PEER_WMM: TDLS peer is WMM capable.
- */
-enum nl80211_tdls_peer_capability {
-	NL80211_TDLS_PEER_HT = 1<<0,
-	NL80211_TDLS_PEER_VHT = 1<<1,
-	NL80211_TDLS_PEER_WMM = 1<<2,
 };
 
 #endif /* __LINUX_NL80211_H */
