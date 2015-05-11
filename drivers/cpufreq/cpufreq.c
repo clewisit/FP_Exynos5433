@@ -39,7 +39,12 @@
  */
 static struct cpufreq_driver *cpufreq_driver;
 static DEFINE_PER_CPU(struct cpufreq_policy *, cpufreq_cpu_data);
-static DEFINE_PER_CPU(struct cpufreq_policy *, cpufreq_cpu_data_fallback);
+#ifdef CONFIG_HOTPLUG_CPU
+/* This one keeps track of the previously set governor of a removed CPU */
+static DEFINE_PER_CPU(char[CPUFREQ_NAME_LEN], cpufreq_cpu_governor);
+static int last_min = -1;
+static int last_max = -1;
+#endif
 static DEFINE_RWLOCK(cpufreq_driver_lock);
 DEFINE_MUTEX(cpufreq_governor_lock);
 static LIST_HEAD(cpufreq_policy_list);
@@ -1130,6 +1135,12 @@ static int __cpufreq_add_dev(struct device *dev, struct subsys_interface *sif,
 	 * managing offline cpus here.
 	 */
 	cpumask_and(policy->cpus, policy->cpus, cpu_online_mask);
+	
+	if (last_min > -1)
+		policy->min = last_min;
+	
+	if (last_max > -1)
+		policy->max = last_max;
 
 	policy->user_policy.min = policy->min;
 	policy->user_policy.max = policy->max;
@@ -1351,18 +1362,24 @@ static int __cpufreq_remove_dev_finish(struct device *dev,
 
 	/* If cpu is last user of policy, free policy */
 	if (cpus == 1) {
-		if (has_target()) {
-			ret = __cpufreq_governor(policy,
-					CPUFREQ_GOV_POLICY_EXIT);
-			if (ret) {
-				pr_err("%s: Failed to exit governor for CPU%u\n",
-						__func__, cpu);
-				return ret;
-			}
-		}
+		if (cpufreq_driver->target)
+			__cpufreq_governor(data, CPUFREQ_GOV_POLICY_EXIT);
 
-		if (!frozen)
-			cpufreq_policy_put_kobj(policy);
+		lock_policy_rwsem_read(cpu);
+		last_min = data->min;
+		last_max = data->max;
+		kobj = &data->kobj;
+		cmp = &data->kobj_unregister;
+		unlock_policy_rwsem_read(cpu);
+		kobject_put(kobj);
+
+		/* we need to make sure that the underlying kobj is actually
+		 * not referenced anymore by anybody before we proceed with
+		 * unloading.
+		 */
+		pr_debug("waiting for dropping of refcount\n");
+		wait_for_completion(cmp);
+		pr_debug("wait complete\n");
 
 		/*
 		 * Perform the ->exit() even during light-weight tear-down,
