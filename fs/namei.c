@@ -3520,7 +3520,7 @@ retry:
 		propagate_path = dentry_path_raw(dentry, path_buf, PATH_MAX);
 	}
 #endif
-	error = vfs_rmdir(nd.path.dentry->d_inode, dentry);
+	error = vfs_rmdir2(nd.path.mnt, nd.path.dentry->d_inode, dentry);
 exit3:
 	dput(dentry);
 exit2:
