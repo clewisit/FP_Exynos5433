@@ -204,6 +204,9 @@ struct ffs_data {
 	const void			*raw_descs_data;
 	const void			*raw_descs;
 	unsigned			raw_descs_length;
+	unsigned			raw_fs_hs_descs_length;
+	unsigned			raw_ss_descs_offset;
+	unsigned			raw_ss_descs_length;
 	unsigned			fs_descs_count;
 	unsigned			hs_descs_count;
 	unsigned			ss_descs_count;
@@ -768,9 +771,12 @@ static ssize_t ffs_epfile_io(struct file *file,
 	char *data = NULL;
 	ssize_t ret;
 	int halt;
-	int buffer_len = 0;
+	int buffer_len = !read ? len : round_up(len, 1024);
 
-	pr_debug("%s: len %d, read %d\n", __func__, len, read);
+	pr_debug("%s: len %ld, buffer_len %d, read %d\n", __func__, len, buffer_len, read);
+
+	if (atomic_read(&epfile->error))
+		return -ENODEV;
 
 	goto first_try;
 	do {
@@ -877,6 +883,14 @@ first_try:
 			INIT_COMPLETION(ffs->epin_completion);
 			req->context  = done = &ffs->epin_completion;
 		}
+
+		if (read) {
+			INIT_COMPLETION(ffs->epout_completion);
+			req->context  = done = &ffs->epout_completion;
+		} else {
+			INIT_COMPLETION(ffs->epin_completion);
+			req->context  = done = &ffs->epin_completion;
+		}
 		ret = usb_ep_queue(ep->ep, req, GFP_ATOMIC);
 
 		spin_unlock_irq(&epfile->ffs->eps_lock);
@@ -962,6 +976,7 @@ ffs_epfile_release(struct inode *inode, struct file *file)
 
 	atomic_set(&epfile->error, 1);
 	ffs_data_closed(epfile->ffs);
+	file->private_data = NULL;
 
 	return 0;
 }
@@ -1413,6 +1428,9 @@ static void ffs_data_reset(struct ffs_data *ffs)
 	ffs->stringtabs = NULL;
 
 	ffs->raw_descs_length = 0;
+	ffs->raw_fs_hs_descs_length = 0;
+	ffs->raw_ss_descs_offset = 0;
+	ffs->raw_ss_descs_length = 0;
 	ffs->fs_descs_count = 0;
 	ffs->hs_descs_count = 0;
 	ffs->ss_descs_count = 0;
@@ -1605,12 +1623,12 @@ static void ffs_func_eps_disable(struct ffs_function *func)
 
 	spin_lock_irqsave(&func->ffs->eps_lock, flags);
 	do {
+		atomic_set(&epfile->error, 1);
 		/* pending requests get nuked */
 		if (likely(ep->ep)) {
 			usb_ep_disable(ep->ep);
 			ep->ep->driver_data = NULL;
 		}
-		atomic_set(&epfile->error, 1);
 		epfile->ep = NULL;
 
 		++ep;
@@ -1631,7 +1649,15 @@ static int ffs_func_eps_enable(struct ffs_function *func)
 	spin_lock_irqsave(&func->ffs->eps_lock, flags);
 	do {
 		struct usb_endpoint_descriptor *ds;
-		int desc_idx = ffs->gadget->speed == USB_SPEED_HIGH ? 1 : 0;
+		int desc_idx;
+
+		if (ffs->gadget->speed == USB_SPEED_SUPER)
+			desc_idx = 2;
+		else if (ffs->gadget->speed == USB_SPEED_HIGH)
+			desc_idx = 1;
+		else
+			desc_idx = 0;
+
 		ds = ep->descs[desc_idx];
 		if (!ds) {
 			ret = -EINVAL;
@@ -1887,8 +1913,8 @@ static int __ffs_data_do_entity(enum ffs_entity_type type,
 static int __ffs_data_got_descs(struct ffs_data *ffs,
 				char *const _data, size_t len)
 {
-	unsigned fs_count = 0, hs_count = 0, ss_count = 0, flags = 0;
-	int fs_len = 0, hs_len = 0, ss_len = 0, ret = -EINVAL;
+	unsigned fs_count, hs_count, ss_count = 0;
+	int fs_len, hs_len, ss_len, ss_magic, ret = -EINVAL;
 	char *data = _data;
 	char *raw_descs;
 
@@ -1958,8 +1984,38 @@ static int __ffs_data_got_descs(struct ffs_data *ffs,
 			ret = hs_len;
 			goto error;
 		}
+	} else {
+		hs_len = 0;
+	}
+
+	if ((len >= hs_len + 8)) {
+		/* Check SS_MAGIC for presence of ss_descs and get SS_COUNT */
+		ss_magic = get_unaligned_le32(data + hs_len);
+		if (ss_magic != FUNCTIONFS_SS_DESC_MAGIC)
+			goto einval;
+
+		ss_count = get_unaligned_le32(data + hs_len + 4);
+		data += hs_len + 8;
+		len  -= hs_len + 8;
+	} else {
 		data += hs_len;
 		len  -= hs_len;
+	}
+
+	if (!fs_count && !hs_count && !ss_count)
+		goto einval;
+
+	if (ss_count) {
+		ss_len = ffs_do_descs(ss_count, data, len,
+				   __ffs_data_do_entity, ffs);
+		if (unlikely(ss_len < 0)) {
+			ret = ss_len;
+			goto error;
+		}
+		ret = ss_len;
+	} else {
+		ss_len = 0;
+		ret = 0;
 	}
 
 	if (likely(ss_count)) {
@@ -1971,12 +2027,15 @@ static int __ffs_data_got_descs(struct ffs_data *ffs,
 		}
 	}
 
-	ffs->raw_descs_data		 = _data;
-	ffs->raw_descs			 = raw_descs;
-	ffs->raw_descs_length		 = fs_len + hs_len + ss_len;
+	ffs->raw_fs_hs_descs_length	 = fs_len + hs_len;
+	ffs->raw_ss_descs_length	 = ss_len;
+	ffs->raw_descs_length		 = ffs->raw_fs_hs_descs_length + ss_len;
+	ffs->raw_descs			 = _data;
 	ffs->fs_descs_count		 = fs_count;
 	ffs->hs_descs_count		 = hs_count;
 	ffs->ss_descs_count		 = ss_count;
+	if (ffs->ss_descs_count)
+		ffs->raw_ss_descs_offset = 16 + ffs->raw_fs_hs_descs_length + 8;
 
 	return 0;
 
@@ -2354,8 +2413,14 @@ static int ffs_func_bind(struct usb_configuration *c,
 
 	/* Zero */
 	memset(data->eps, 0, sizeof data->eps);
-	/* Copy descriptors */
-	memcpy(data->raw_descs, ffs->raw_descs, ffs->raw_descs_length);
+	/* Copy only raw (hs,fs) descriptors (until ss_magic and ss_count) */
+	memcpy(data->raw_descs, ffs->raw_descs + 16,
+				ffs->raw_fs_hs_descs_length);
+	/* Copy SS descriptors */
+	if (func->ffs->ss_descs_count)
+		memcpy(data->raw_descs + ffs->raw_fs_hs_descs_length,
+			ffs->raw_descs + ffs->raw_ss_descs_offset,
+			ffs->raw_ss_descs_length);
 
 	memset(data->inums, 0xff, sizeof data->inums);
 	for (ret = ffs->eps_count; ret; --ret)
