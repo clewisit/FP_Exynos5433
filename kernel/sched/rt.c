@@ -1424,7 +1424,8 @@ static struct task_struct *_pick_next_task_rt(struct rq *rq)
 	if (rq->skip_clock_update > 0) {
 		rq->skip_clock_update = 0;
 		update_rq_clock(rq);
-	}
+	}	
+
 	p = rt_task_of(rt_se);
 	p->se.exec_start = rq->clock_task;
 
