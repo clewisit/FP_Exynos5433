@@ -30,16 +30,7 @@
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
 #include <linux/spinlock.h>
-#include <linux/wakelock.h>
-
-#if defined(CONFIG_SEC_DEBUG)
-#include <mach/sec_debug.h>
-#endif
-#include <linux/sec_class.h>
-
-#if defined(CONFIG_SENSORS_HALL)
-static bool flip_cover;
-#endif
+#include <mach/cpufreq.h>
 
 #include <linux/sec_sysfs.h>
 #include <linux/sec_debug.h>
@@ -537,6 +528,12 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 	}
 
 	input_sync(input);
+
+	if (((button->code == KEY_POWER) || (button->code == KEY_HOMEPAGE))
+	    && !!state) {
+		event_hotplug_in();
+	}
+
 #ifdef CONFIG_INPUT_BOOSTER
 	if (button->code == KEY_HOMEPAGE)
 		input_booster_send_event(BOOSTER_DEVICE_KEY, !!state);
