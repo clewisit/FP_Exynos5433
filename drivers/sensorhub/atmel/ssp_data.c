@@ -13,8 +13,6 @@
  *
  */
 #include "ssp.h"
-#include <linux/math64.h>
-#include <linux/sched.h>
 
 /* SSP -> AP Instruction */
 #define MSG2AP_INST_BYPASS_DATA			0x37
@@ -29,46 +27,16 @@
 /* SSP parsing the dataframe                                             */
 /*************************************************************************/
 
-static void generate_data(struct ssp_data *data,
-	struct sensor_value *sensorsdata, int iSensorData, u64 timestamp)
-{
-	u64 move_timestamp = data->lastTimestamp[iSensorData];
-	if ((iSensorData != PROXIMITY_SENSOR) && (iSensorData != GESTURE_SENSOR)
-		&& (iSensorData != STEP_DETECTOR) && (iSensorData != SIG_MOTION_SENSOR)
-		&& (iSensorData != STEP_COUNTER)) {
-		while ((move_timestamp * 10 + data->adDelayBuf[iSensorData] * 15) < (timestamp * 10)) {
-			move_timestamp += data->adDelayBuf[iSensorData];
-			sensorsdata->timestamp = move_timestamp;
-			data->report_sensor_data[iSensorData](data, sensorsdata);
-		}
-	}
-}
-
 static void get_timestamp(struct ssp_data *data, char *pchRcvDataFrame,
-		int *iDataIdx, struct sensor_value *sensorsdata,
-		struct ssp_time_diff *sensortime, int iSensorData)
-{
-	if (sensortime->batch_mode == BATCH_MODE_RUN) {
-		if (sensortime->batch_count == sensortime->batch_count_fixed) {
-			if (sensortime->time_diff == data->adDelayBuf[iSensorData]) {
-				generate_data(data, sensorsdata, iSensorData,
-						(data->timestamp - data->adDelayBuf[iSensorData] * (sensortime->batch_count_fixed - 1)));
-			}
-			sensorsdata->timestamp = data->timestamp - ((sensortime->batch_count - 1) * sensortime->time_diff);
-		} else {
-			if (sensortime->batch_count > 1)
-				sensorsdata->timestamp = data->timestamp - ((sensortime->batch_count - 1) * sensortime->time_diff);
-			else
-				sensorsdata->timestamp = data->timestamp;
-		}
-	} else {
-		if (((sensortime->irq_diff * 10) > (data->adDelayBuf[iSensorData] * 15))
-			&& ((sensortime->irq_diff * 10) < (data->adDelayBuf[iSensorData] * 100))) {
-			generate_data(data, sensorsdata, iSensorData, data->timestamp);
-		}
-		sensorsdata->timestamp = data->timestamp;
-	}
+		int *iDataIdx, struct sensor_value *sensorsdata) {
+	s32 otimestamp = 0;
+	s64 ctimestamp = 0;
+
+	memcpy(&otimestamp, pchRcvDataFrame + *iDataIdx, 4);
 	*iDataIdx += 4;
+
+	ctimestamp = (s64) otimestamp * 1000000;
+	sensorsdata->timestamp = data->timestamp + ctimestamp;
 }
 
 static void get_3axis_sensordata(char *pchRcvDataFrame, int *iDataIdx,
@@ -102,8 +70,13 @@ static void get_geomagnetic_rawdata(char *pchRcvDataFrame, int *iDataIdx,
 static void get_geomagnetic_caldata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
+#ifdef SAVE_MAG_LOG
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 20);
+	*iDataIdx += 20;
+#else
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 7);
 	*iDataIdx += 7;
+#endif
 }
 
 static void get_rot_sensordata(char *pchRcvDataFrame, int *iDataIdx,
@@ -123,8 +96,16 @@ static void get_step_det_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 static void get_light_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	struct sensor_value *sensorsdata)
 {
+#if defined(CONFIG_SENSORS_SSP_TMG399X)
 	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 10);
 	*iDataIdx += 10;
+#elif defined(CONFIG_SENSORS_SSP_MAX88921)
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 12);
+	*iDataIdx += 12;
+#else
+	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 8);
+	*iDataIdx += 8;
+#endif
 }
 
 static void get_pressure_sensordata(char *pchRcvDataFrame, int *iDataIdx,
@@ -181,20 +162,6 @@ static void get_step_cnt_sensordata(char *pchRcvDataFrame, int *iDataIdx,
 	*iDataIdx += 4;
 }
 
-static void get_tsp_angle_sensordata(char *pchRcvDataFrame, int *iDataIdx,
-	struct sensor_value *sensorsdata)
-{
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 3);
-	*iDataIdx += 3;
-}
-
-static void get_shake_cam_sensordata(char *pchRcvDataFrame, int *iDataIdx,
-	struct sensor_value *sensorsdata)
-{
-	memcpy(sensorsdata, pchRcvDataFrame + *iDataIdx, 1);
-	*iDataIdx += 1;
-}
-
 int handle_big_data(struct ssp_data *data, char *pchRcvDataFrame, int *pDataIdx) {
 	u8 bigType = 0;
 	struct ssp_big *big = kzalloc(sizeof(*big), GFP_KERNEL);
@@ -240,9 +207,6 @@ void refresh_task(struct work_struct *work) {
 		data->uSensorState = 0;
 
 	wake_unlock(&data->ssp_wake_lock);
-#if SSP_STATUS_MONITOR
-	data->bRefreshing =  false;
-#endif
 }
 
 int queue_refresh_task(struct ssp_data *data, int delay) {
@@ -258,7 +222,9 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength) {
 	int iDataIdx, iSensorData;
 	u16 length = 0;
 	struct sensor_value sensorsdata;
-	struct ssp_time_diff sensortime;
+	struct timespec ts;
+
+	getnstimeofday(&ts);
 
 	for (iDataIdx = 0; iDataIdx < iLength;) {
 		switch (pchRcvDataFrame[iDataIdx++]) {
@@ -269,64 +235,10 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength) {
 						iSensorData);
 				return ERROR;
 			}
-			memcpy(&length, pchRcvDataFrame + iDataIdx, 2);
-			iDataIdx += 2;
-			sensortime.batch_count = sensortime.batch_count_fixed = length;
-			sensortime.batch_mode = length > 1 ? BATCH_MODE_RUN : BATCH_MODE_NONE;
-			sensortime.irq_diff = data->timestamp - data->lastTimestamp[iSensorData];
-			sensortime.time_diff = 0;
-
-			if (sensortime.batch_mode == BATCH_MODE_RUN) {
-				if (data->reportedData[iSensorData] == true) {
-					u64 time;
-					sensortime.time_diff = div64_long((s64)(data->timestamp - data->lastTimestamp[iSensorData]), (s64)length);
-					if (length > 8)
-						time = data->adDelayBuf[iSensorData] * 18;
-					else if (length > 4)
-						time = data->adDelayBuf[iSensorData] * 25;
-					else if (length > 2)
-						time = data->adDelayBuf[iSensorData] * 50;
-					else
-						time = data->adDelayBuf[iSensorData] * 100;
-					if ((sensortime.time_diff * 10) > time) {
-						data->lastTimestamp[iSensorData] = data->timestamp - (data->adDelayBuf[iSensorData] * length);
-						sensortime.time_diff = data->adDelayBuf[iSensorData];
-					} else {
-						time = data->adDelayBuf[iSensorData] * 18;
-						if ((sensortime.time_diff * 10) > time)
-							sensortime.time_diff = data->adDelayBuf[iSensorData];
-					}
-				} else {
-					if (data->lastTimestamp[iSensorData] < (data->timestamp - (data->adDelayBuf[iSensorData] * length))) {
-						data->lastTimestamp[iSensorData] = data->timestamp - (data->adDelayBuf[iSensorData] * length);
-						sensortime.time_diff = data->adDelayBuf[iSensorData];
-					} else
-						sensortime.time_diff = div64_long((s64)(data->timestamp - data->lastTimestamp[iSensorData]), (s64)length);
-				}
-			} else {
-				if (data->reportedData[iSensorData] == false)
-					sensortime.irq_diff = data->adDelayBuf[iSensorData];
-			}
-
-			do {
-				data->get_sensor_data[iSensorData](pchRcvDataFrame, &iDataIdx, &sensorsdata);
-				get_timestamp(data, pchRcvDataFrame, &iDataIdx, &sensorsdata, &sensortime, iSensorData);
-				if (sensortime.irq_diff > 1000000)
-					data->report_sensor_data[iSensorData](data, &sensorsdata);
-				else if ((iSensorData == PROXIMITY_SENSOR) || (iSensorData == PROXIMITY_RAW)
-						|| (iSensorData == GESTURE_SENSOR) || (iSensorData == SIG_MOTION_SENSOR)
-						|| (iSensorData == STEP_DETECTOR) || (iSensorData == STEP_COUNTER))
-					data->report_sensor_data[iSensorData](data, &sensorsdata);
-				else if (printk_ratelimit())
-					pr_debug("[SSP]: %s irq_diff is under 1msec (%d)\n", __func__, iSensorData);
-				sensortime.batch_count--;
-			} while ((sensortime.batch_count > 0) && (iDataIdx < iLength));
-
-			if (sensortime.batch_count > 0)
-				pr_err("[SSP]: %s batch count error (%d)\n", __func__, sensortime.batch_count);
-
-			data->lastTimestamp[iSensorData] = data->timestamp;
-			data->reportedData[iSensorData] = true;
+			data->get_sensor_data[iSensorData](pchRcvDataFrame, &iDataIdx,
+					&sensorsdata);
+			get_timestamp(data, pchRcvDataFrame, &iDataIdx, &sensorsdata);
+			data->report_sensor_data[iSensorData](data, &sensorsdata);
 			break;
 		case MSG2AP_INST_DEBUG_DATA:
 			iSensorData = print_mcu_debug(pchRcvDataFrame, &iDataIdx, iLength);
@@ -355,11 +267,13 @@ int parse_dataframe(struct ssp_data *data, char *pchRcvDataFrame, int iLength) {
 			data->bTimeSyncing = true;
 			break;
 		case MSG2AP_INST_RESET:
-			pr_info("[SSP]: %s - Reset MSG received from MCU.\n", __func__);
 			queue_refresh_task(data, 0);
 			break;
 		}
 	}
+
+	if (data->bTimeSyncing)
+		data->timestamp = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 
 	return SUCCESS;
 }
@@ -386,8 +300,6 @@ void initialize_function_pointer(struct ssp_data *data)
 	data->get_sensor_data[SIG_MOTION_SENSOR] = get_sig_motion_sensordata;
 	data->get_sensor_data[GYRO_UNCALIB_SENSOR] = get_uncalib_sensordata;
 	data->get_sensor_data[STEP_COUNTER] = get_step_cnt_sensordata;
-	data->get_sensor_data[SHAKE_CAM] = get_shake_cam_sensordata;
-	data->get_sensor_data[TSP_ANGLE] = get_tsp_angle_sensordata;
 
 	data->report_sensor_data[ACCELEROMETER_SENSOR] = report_acc_data;
 	data->report_sensor_data[GYROSCOPE_SENSOR] = report_gyro_data;
@@ -409,12 +321,11 @@ void initialize_function_pointer(struct ssp_data *data)
 	data->report_sensor_data[SIG_MOTION_SENSOR] = report_sig_motion_data;
 	data->report_sensor_data[GYRO_UNCALIB_SENSOR] = report_uncalib_gyro_data;
 	data->report_sensor_data[STEP_COUNTER] = report_step_cnt_data;
-	data->report_sensor_data[SHAKE_CAM] = report_shake_cam_data;
-	data->report_sensor_data[TSP_ANGLE] = report_tsp_angle_data;
 
 	data->ssp_big_task[BIG_TYPE_DUMP] = ssp_dump_task;
 	data->ssp_big_task[BIG_TYPE_READ_LIB] = ssp_read_big_library_task;
 	data->ssp_big_task[BIG_TYPE_VOICE_NET] = ssp_send_big_library_task;
 	data->ssp_big_task[BIG_TYPE_VOICE_GRAM] = ssp_send_big_library_task;
 	data->ssp_big_task[BIG_TYPE_VOICE_PCM] = ssp_pcm_dump_task;
+	data->ssp_big_task[BIG_TYPE_TEMP] = ssp_temp_task;
 }

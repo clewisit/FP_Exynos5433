@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_dbg.h 602251 2015-11-25 11:28:15Z $
+ * $Id: dhd_dbg.h 605803 2015-12-11 14:44:32Z $
  */
 
 #ifndef _dhd_dbg_
@@ -75,7 +75,6 @@ do {	\
 #define DHD_ARPOE(args)		do {if (dhd_msg_level & DHD_ARPOE_VAL) printf args;} while (0)
 #define DHD_REORDER(args)	do {if (dhd_msg_level & DHD_REORDER_VAL) printf args;} while (0)
 #define DHD_PNO(args)		do {if (dhd_msg_level & DHD_PNO_VAL) printf args;} while (0)
-#define DHD_RTT(args)		do {if (dhd_msg_level & DHD_RTT_VAL) printf args;} while (0)
 
 #ifdef DHD_LOG_DUMP
 #define DHD_ERROR_EX(args)	\
@@ -91,11 +90,9 @@ do {	\
 
 #ifdef CUSTOMER_HW4
 #define DHD_TRACE_HW4	DHD_ERROR
-#define DHD_INFO_HW4	DHD_ERROR
 #else
 #define DHD_TRACE_HW4	DHD_TRACE
-#define DHD_INFO_HW4	DHD_INFO
-#endif /* CUSTOMER_HW4 */
+#endif
 
 #define DHD_ERROR_ON()		(dhd_msg_level & DHD_ERROR_VAL)
 #define DHD_TRACE_ON()		(dhd_msg_level & DHD_TRACE_VAL)
@@ -114,7 +111,6 @@ do {	\
 #define DHD_REORDER_ON()	(dhd_msg_level & DHD_REORDER_VAL)
 #define DHD_NOCHECKDIED_ON()	(dhd_msg_level & DHD_NOCHECKDIED_VAL)
 #define DHD_PNO_ON()		(dhd_msg_level & DHD_PNO_VAL)
-#define DHD_RTT_ON()		(dhd_msg_level & DHD_RTT_VAL)
 
 #else /* defined(BCMDBG) || defined(DHD_DEBUG) */
 
@@ -138,11 +134,9 @@ do {	\
 
 #ifdef CUSTOMER_HW4
 #define DHD_TRACE_HW4	DHD_ERROR
-#define DHD_INFO_HW4	DHD_ERROR
 #else
 #define DHD_TRACE_HW4	DHD_TRACE
-#define DHD_INFO_HW4	DHD_INFO
-#endif /* CUSTOMER_HW4 */
+#endif
 
 #define DHD_ERROR_ON()		0
 #define DHD_TRACE_ON()		0
@@ -161,7 +155,6 @@ do {	\
 #define DHD_REORDER_ON()	0
 #define DHD_NOCHECKDIED_ON()	0
 #define DHD_PNO_ON()		0
-#define DHD_RTT_ON()		0
 
 #endif 
 

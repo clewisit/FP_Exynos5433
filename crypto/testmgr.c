@@ -1684,7 +1684,7 @@ static int drbg_cavs_test(struct drbg_testvec *test, int pr,
 	if (!buf)
 		return -ENOMEM;
 
-	drng = crypto_alloc_rng(driver, type | CRYPTO_ALG_INTERNAL, mask);
+	drng = crypto_alloc_rng(driver, type, mask);
 	if (IS_ERR(drng)) {
 		printk(KERN_ERR "alg: drbg: could not allocate DRNG handle for "
 		       "%s\n", driver);
@@ -1739,6 +1739,7 @@ outbuf:
 	return ret;
 }
 
+
 static int alg_test_drbg(const struct alg_test_desc *desc, const char *driver,
 			 u32 type, u32 mask)
 {
@@ -1768,6 +1769,12 @@ static int alg_test_drbg(const struct alg_test_desc *desc, const char *driver,
 static int alg_test_null(const struct alg_test_desc *desc,
 			     const char *driver, u32 type, u32 mask)
 {
+#ifdef CONFIG_CRYPTO_FIPS
+        if (desc && desc->fips_allowed) {
+                if (unlikely(in_fips_err()))
+                        return -1;
+        }
+#endif
 	return 0;
 }
 
@@ -3409,10 +3416,10 @@ int alg_test(const char *driver, const char *alg, u32 type, u32 mask)
 		goto notest;
 
 #if FIPS_FUNC_TEST == 3
-    // change@wtl.rsengott - FIPS mode self test Functional Test
-    if (fips_enabled)
-        printk(KERN_INFO "FIPS: %s: %s alg self test START in fips mode!\n",
-               driver, alg);
+	// change@wtl.rsengott - FIPS mode self test Functional Test
+	if (fips_enabled)
+		printk(KERN_INFO "FIPS: %s: %s alg self test START in fips mode!\n",
+			driver, alg);
 #endif
 
 	if (fips_enabled && ((i >= 0 && !alg_test_descs[i].fips_allowed) ||
@@ -3450,14 +3457,9 @@ notest:
 	printk(KERN_INFO "FIPS: No test for %s (%s)\n", alg, driver);
 	return 0;
 non_fips_alg:
-	if (!rc)
 		printk(KERN_INFO
 			"FIPS: self-tests for non-FIPS %s (%s) passed\n",
 			driver, alg);
-	else
-		printk(KERN_INFO
-			"FIPS: self-tests for non-FIPS %s (%s) failed\n",
-			alg, driver);
 	return rc;
 }
 int testmgr_crypto_proc_init(void)

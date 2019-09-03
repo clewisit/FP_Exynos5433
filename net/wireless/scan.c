@@ -55,19 +55,6 @@
  * also linked into the probe response struct.
  */
 
-/*
- * Limit the number of BSS entries stored in mac80211. Each one is
- * a bit over 4k at most, so this limits to roughly 4-5M of memory.
- * If somebody wants to really attack this though, they'd likely
- * use small beacons, and only one type of frame, limiting each of
- * the entries to a much smaller size (in order to generate more
- * entries in total, so overhead is bigger.)
- */
-static int bss_entries_limit = 1000;
-module_param(bss_entries_limit, int, 0644);
-MODULE_PARM_DESC(bss_entries_limit,
-                 "limit to number of scan BSS entries (per wiphy, default 1000)");
-
 #define IEEE80211_SCAN_RESULT_EXPIRE	(6 * HZ)
 
 static void bss_free(struct cfg80211_internal_bss *bss)
@@ -480,6 +467,8 @@ static int cmp_bss(struct cfg80211_bss *a,
 
 #if !(defined(CONFIG_BCM4335) || defined(CONFIG_BCM4335_MODULE) \
         || defined(CONFIG_BCM4339) || defined(CONFIG_BCM4339_MODULE) \
+        || defined(CONFIG_BCM43454) || defined(CONFIG_BCM43454_MODULE) \
+        || defined(CONFIG_BCM43455) || defined(CONFIG_BCM43455_MODULE) \
         || defined(CONFIG_BCM4354) || defined(CONFIG_BCM4354_MODULE) \
         || defined(CONFIG_BCM4356) || defined(CONFIG_BCM4356_MODULE) \
         || defined(CONFIG_BCM4358) || defined(CONFIG_BCM4358_MODULE))
@@ -528,13 +517,15 @@ static int cmp_bss(struct cfg80211_bss *a,
 	r = memcmp(a->bssid, b->bssid, sizeof(a->bssid));
 	if (r)
 		return r;
-#if (defined(CONFIG_BCM4335) || defined(CONFIG_BCM4335_MODULE) \
+#if (defined(CONFIG_BCM4339) || defined(CONFIG_BCM4339_MODULE) \
         || defined(CONFIG_BCM4339) || defined(CONFIG_BCM4339_MODULE) \
+        || defined(CONFIG_BCM43454) || defined(CONFIG_BCM43454_MODULE) \
+        || defined(CONFIG_BCM43455) || defined(CONFIG_BCM43455_MODULE) \
         || defined(CONFIG_BCM4354) || defined(CONFIG_BCM4354_MODULE) \
         || defined(CONFIG_BCM4356) || defined(CONFIG_BCM4356_MODULE) \
         || defined(CONFIG_BCM4358) || defined(CONFIG_BCM4358_MODULE))
-        if (a->channel != b->channel)
-                return b->channel->center_freq - a->channel->center_freq;
+	if (a->channel != b->channel)
+		return b->channel->center_freq - a->channel->center_freq;
 #endif /* CONFIG_BCM43xx */
 
 	ie1 = cfg80211_find_ie(WLAN_EID_SSID, a_ies->data, a_ies->len);

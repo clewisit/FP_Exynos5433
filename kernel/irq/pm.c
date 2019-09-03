@@ -105,10 +105,6 @@ int check_wakeup_irqs(void)
 	for_each_irq_desc(irq, desc) {
 		if (irqd_is_wakeup_set(&desc->irq_data)) {
 			if (desc->istate & IRQS_PENDING) {
-				log_suspend_abort_reason("Wakeup IRQ %d %s pending",
-					irq,
-					desc->action && desc->action->name ?
-					desc->action->name : "");
 				pr_info("Wakeup IRQ %d %s pending, suspend aborted\n",
 					irq,
 					desc->action && desc->action->name ?

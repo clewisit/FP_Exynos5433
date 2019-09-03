@@ -56,9 +56,7 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/vmscan.h>
 
-#ifdef CONFIG_INCREASE_MAXIMUM_SWAPPINESS
 int max_swappiness = 200;
-#endif
 
 struct scan_control {
 	/* Incremented by the number of inactive pages that were scanned */
@@ -1854,7 +1852,7 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	 * anything from the anonymous working set right now.
 	 */
 	if (!IS_ENABLED(CONFIG_BALANCE_ANON_FILE_RECLAIM) &&
-			!inactive_file_is_low(lruvec)) {
+		!inactive_file_is_low(lruvec)) {
 		scan_balance = SCAN_FILE;
 		goto out;
 	}
@@ -1862,15 +1860,10 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	scan_balance = SCAN_FRACT;
 
 	/*
-	 * With swappiness at 100, anonymous and file have the same priority.
 	 * This scanning priority is essentially the inverse of IO cost.
 	 */
 	anon_prio = vmscan_swappiness(sc);
-#ifdef CONFIG_INCREASE_MAXIMUM_SWAPPINESS
 	file_prio = max_swappiness - anon_prio;
-#else
-	file_prio = 200 - anon_prio;
-#endif
 
 	/*
 	 * OK, so we have swap space and a fair amount of page cache
@@ -2245,6 +2238,11 @@ static bool shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 	return aborted_reclaim;
 }
 
+static bool zone_reclaimable(struct zone *zone)
+{
+	return zone->pages_scanned < zone_reclaimable_pages(zone) * 6;
+}
+#ifndef CONFIG_ZOOM_KILLER
 /* All zones in zonelist are unreclaimable? */
 static bool all_unreclaimable(struct zonelist *zonelist,
 		struct scan_control *sc)
@@ -2264,7 +2262,7 @@ static bool all_unreclaimable(struct zonelist *zonelist,
 
 	return true;
 }
-
+#endif
 /*
  * This is the main entry point to direct page reclaim.
  *
@@ -2379,9 +2377,11 @@ out:
 	if (aborted_reclaim)
 		return 1;
 
+#ifndef CONFIG_ZOOM_KILLER
 	/* top priority shrink_zones still had more to do? don't OOM, then */
 	if (global_reclaim(sc) && !all_unreclaimable(zonelist, sc))
 		return 1;
+#endif
 
 	return 0;
 }

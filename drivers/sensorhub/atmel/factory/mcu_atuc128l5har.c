@@ -18,11 +18,7 @@
 /* factory Sysfs                                                         */
 /*************************************************************************/
 
-#if defined(CONFIG_SEC_TRLTE_PROJECT) || defined(CONFIG_SEC_TBLTE_PROJECT)
-#define MODEL_NAME			"ATSAMG53G19A-UUT"
-#else
 #define MODEL_NAME			"SAMG53G19-UUR-101"
-#endif
 
 ssize_t mcu_revision_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -123,12 +119,6 @@ ssize_t mcu_reset_show(struct device *dev,
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-#if SSP_STATUS_MONITOR
-	if (data->bRefreshing) {
-		pr_err("[SSP] : %s MCU is refreshing another route.....Wait 3sec\n", __func__);
-		msleep(2000);
-	}
-#endif
 	reset_mcu(data);
 
 	return sprintf(buf, "OK\n");
@@ -275,7 +265,11 @@ exit:
 		"[SSP]: ges %d,%d,%d,%d\n"
 		"[SSP]: prox %u,%u\n"
 		"[SSP]: temp %d,%d,%d\n"
+#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921)
 		"[SSP]: light %u,%u,%u,%u,%u,%u\n", __func__,
+#else
+		"[SSP]: light %u,%u,%u,%u\n", __func__,
+#endif
 		fsb[ACCELEROMETER_SENSOR].x, fsb[ACCELEROMETER_SENSOR].y,
 		fsb[ACCELEROMETER_SENSOR].z, fsb[GYROSCOPE_SENSOR].x,
 		fsb[GYROSCOPE_SENSOR].y, fsb[GYROSCOPE_SENSOR].z,
@@ -290,10 +284,19 @@ exit:
 		fsb[TEMPERATURE_HUMIDITY_SENSOR].z,
 		fsb[LIGHT_SENSOR].r, fsb[LIGHT_SENSOR].g, fsb[LIGHT_SENSOR].b,
 		fsb[LIGHT_SENSOR].w
-		,fsb[LIGHT_SENSOR].a_time, fsb[LIGHT_SENSOR].a_gain);
+#if defined(CONFIG_SENSORS_SSP_TMG399X)
+		,fsb[LIGHT_SENSOR].a_time, fsb[LIGHT_SENSOR].a_gain
+#elif defined(CONFIG_SENSORS_SSP_MAX88921)
+		,fsb[LIGHT_SENSOR].ir_cmp, fsb[LIGHT_SENSOR].amb_pga
+#endif
+		);
 
 	return sprintf(buf, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,"
+#if defined(CONFIG_SENSORS_SSP_TMG399X) || defined(CONFIG_SENSORS_SSP_MAX88921)
 		"%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%d,%d\n",
+#else
+		"%u,%u,%u,%u,%d,%d,%d,%d,%d,%d\n",
+#endif
 		fsb[ACCELEROMETER_SENSOR].x, fsb[ACCELEROMETER_SENSOR].y,
 		fsb[ACCELEROMETER_SENSOR].z, fsb[GYROSCOPE_SENSOR].x,
 		fsb[GYROSCOPE_SENSOR].y, fsb[GYROSCOPE_SENSOR].z,
@@ -302,7 +305,11 @@ exit:
 		fsb[PRESSURE_SENSOR].pressure[1], fsb[PROXIMITY_SENSOR].prox[1],
 		fsb[LIGHT_SENSOR].r, fsb[LIGHT_SENSOR].g, fsb[LIGHT_SENSOR].b,
 		fsb[LIGHT_SENSOR].w,
+#if defined(CONFIG_SENSORS_SSP_TMG399X)
 		fsb[LIGHT_SENSOR].a_time, fsb[LIGHT_SENSOR].a_gain,
+#elif defined(CONFIG_SENSORS_SSP_MAX88921)
+		fsb[LIGHT_SENSOR].ir_cmp, fsb[LIGHT_SENSOR].amb_pga,
+#endif
 		fsb[GESTURE_SENSOR].data[0], fsb[GESTURE_SENSOR].data[1],
 		fsb[GESTURE_SENSOR].data[2], fsb[GESTURE_SENSOR].data[3],
 		fsb[TEMPERATURE_HUMIDITY_SENSOR].x,

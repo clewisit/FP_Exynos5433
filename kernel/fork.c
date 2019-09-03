@@ -741,7 +741,8 @@ struct mm_struct *mm_access(struct task_struct *task, unsigned int mode)
 
 	mm = get_task_mm(task);
 	if (mm && mm != current->mm &&
-			!ptrace_may_access(task, mode)) {
+			!ptrace_may_access(task, mode) &&
+			!capable(CAP_SYS_RESOURCE)) {
 		mmput(mm);
 		mm = ERR_PTR(-EACCES);
 	}
@@ -1207,7 +1208,7 @@ void rkp_assign_pgd(struct task_struct *p)
 {
 	unsigned int pgd;
 	pgd = (unsigned int)(p->mm ? p->mm->pgd :swapper_pg_dir);
-	tima_send_cmd2((unsigned int)p->cred, (unsigned int)pgd, 0x3f843221);
+	tima_send_cmd2((unsigned int)p->cred, (unsigned int)pgd, 0x43);
 }
 #endif /*CONFIG_TIMA_RKP_RO_CRED*/
 /*
@@ -1585,7 +1586,8 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	trace_task_newtask(p, clone_flags);
 #ifdef CONFIG_TIMA_RKP_RO_CRED
-	rkp_assign_pgd(p);
+	if(rkp_cred_enable)
+		rkp_assign_pgd(p);
 #endif/*CONFIG_TIMA_RKP_RO_CRED*/
 
 	return p;

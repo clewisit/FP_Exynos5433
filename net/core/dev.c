@@ -4056,6 +4056,7 @@ static void net_rps_action_and_irq_enable(struct softnet_data *sd)
 							   &remsd->csd, 0);
 			else
 				clear_bit(NAPI_STATE_SCHED, &remsd->backlog.state);
+
 			remsd = next;
 		}
 	} else

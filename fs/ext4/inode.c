@@ -4248,11 +4248,9 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 		if (EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize >
 		    EXT4_INODE_SIZE(inode->i_sb)) {
 			print_iloc_info(sb,iloc);
-			ext4_error_inode(inode, function, line, 0,
-					 "iget: bad extra_isize %u "
-					 "(inode size %u)",
-					 ei->i_extra_isize,
-					 EXT4_INODE_SIZE(inode->i_sb));
+			EXT4_ERROR_INODE(inode, "bad extra_isize (%u != %u)",
+				EXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize,
+				EXT4_INODE_SIZE(inode->i_sb));
 			ret = -EIO;
 			goto bad_inode;
 		}
@@ -4274,8 +4272,7 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 
 	if (!ext4_inode_csum_verify(inode, raw_inode, ei)) {
 		print_iloc_info(sb,iloc);
-		ext4_error_inode(inode, function, line, 0,
-				 "iget: checksum invalid");
+		EXT4_ERROR_INODE(inode, "checksum invalid");
 		ret = -EIO;
 		goto bad_inode;
 	}
@@ -4395,8 +4392,7 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 	if (ei->i_file_acl &&
 	    !ext4_data_block_valid(EXT4_SB(sb), ei->i_file_acl, 1)) {
 		print_iloc_info(sb,iloc);
-		ext4_error_inode(inode, function, line, 0,
-				 "iget: bad extended attribute block %llu",
+		EXT4_ERROR_INODE(inode, "bad extended attribute block %llu",
 				 ei->i_file_acl);
 		ret = -EIO;
 		goto bad_inode;
@@ -4449,8 +4445,7 @@ struct inode *__ext4_iget(struct super_block *sb, unsigned long ino,
 	} else {
 		ret = -EIO;
 		print_iloc_info(sb,iloc);
-		ext4_error_inode(inode, function, line, 0,
-				 "iget: bogus i_mode (%o)", inode->i_mode);
+		EXT4_ERROR_INODE(inode, "bogus i_mode (%o)", inode->i_mode);
 		goto bad_inode;
 	}
 	brelse(iloc.bh);

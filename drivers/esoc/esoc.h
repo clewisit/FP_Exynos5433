@@ -20,8 +20,8 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
-#include <soc/qcom/subsystem_restart.h>
-#include <soc/qcom/subsystem_notif.h>
+#include <mach/subsystem_restart.h>
+#include <mach/subsystem_notif.h>
 
 #define ESOC_DEV_MAX		4
 #define ESOC_NAME_LEN		20
@@ -86,6 +86,7 @@ struct esoc_clink {
 struct esoc_clink_ops {
 	int (*cmd_exe)(enum esoc_cmd cmd, struct esoc_clink *dev);
 	int (*get_status)(u32 *status, struct esoc_clink *dev);
+	void (*set_hsic_ready)(struct esoc_clink *dev);
 	void (*notify)(enum esoc_notify notify, struct esoc_clink *dev);
 };
 

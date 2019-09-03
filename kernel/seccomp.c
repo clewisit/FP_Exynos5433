@@ -97,7 +97,7 @@ u32 seccomp_bpf_load(int off)
 	if (off == BPF_DATA(nr))
 		return syscall_get_nr(current, regs);
 	if (off == BPF_DATA(arch))
-		return syscall_get_arch(current, regs);
+		return syscall_get_arch();
 	if (off >= BPF_DATA(args[0]) && off < BPF_DATA(args[6])) {
 		unsigned long value;
 		int arg = (off - BPF_DATA(args[0])) / sizeof(u64);
@@ -210,7 +210,7 @@ static u32 seccomp_run_filters(int syscall)
 	if (unlikely(WARN_ON(f == NULL)))
 		return SECCOMP_RET_KILL;
 
-	/* Make sure cross-thread synced filter points somewhere sane. */
+/* Make sure cross-thread synced filter points somewhere sane. */
 	smp_read_barrier_depends();
 
 	/*
@@ -219,12 +219,94 @@ static u32 seccomp_run_filters(int syscall)
 	 */
 	for (; f; f = f->prev) {
 		u32 cur_ret = sk_run_filter(NULL, f->insns);
-		
+
 		if ((cur_ret & SECCOMP_RET_ACTION) < (ret & SECCOMP_RET_ACTION))
 			ret = cur_ret;
 	}
 	return ret;
 }
+#endif /* CONFIG_SECCOMP_FILTER */
+
+static inline bool seccomp_may_assign_mode(unsigned long seccomp_mode)
+{
+	assert_spin_locked(&current->sighand->siglock);
+
+	if (current->seccomp.mode && current->seccomp.mode != seccomp_mode)
+		return false;
+
+	return true;
+}
+
+static inline void seccomp_assign_mode(struct task_struct *task,
+				       unsigned long seccomp_mode)
+{
+	assert_spin_locked(&task->sighand->siglock);
+
+	task->seccomp.mode = seccomp_mode;
+	/*
+	 * Make sure TIF_SECCOMP cannot be set before the mode (and
+	 * filter) is set.
+	 */
+	smp_mb();
+	set_tsk_thread_flag(task, TIF_SECCOMP);
+}
+
+#ifdef CONFIG_SECCOMP_FILTER
+/* Returns 1 if the parent is an ancestor of the child. */
+static int is_ancestor(struct seccomp_filter *parent,
+		       struct seccomp_filter *child)
+{
+	/* NULL is the root ancestor. */
+	if (parent == NULL)
+		return 1;
+	for (; child; child = child->prev)
+		if (child == parent)
+			return 1;
+	return 0;
+}
+
+/**
+ * seccomp_can_sync_threads: checks if all threads can be synchronized
+ *
+ * Expects sighand and cred_guard_mutex locks to be held.
+ *
+ * Returns 0 on success, -ve on error, or the pid of a thread which was
+ * either not in the correct seccomp mode or it did not have an ancestral
+ * seccomp filter.
+ */
+static inline pid_t seccomp_can_sync_threads(void)
+{
+	struct task_struct *thread, *caller;
+
+	BUG_ON(!mutex_is_locked(&current->signal->cred_guard_mutex));
+	assert_spin_locked(&current->sighand->siglock);
+
+	/* Validate all threads being eligible for synchronization. */
+	caller = current;
+	for_each_thread(caller, thread) {
+		pid_t failed;
+
+		/* Skip current, since it is initiating the sync. */
+		if (thread == caller)
+			continue;
+
+		if (thread->seccomp.mode == SECCOMP_MODE_DISABLED ||
+		    (thread->seccomp.mode == SECCOMP_MODE_FILTER &&
+		     is_ancestor(thread->seccomp.filter,
+				 caller->seccomp.filter)))
+			continue;
+
+		/* Return the first thread that cannot be synchronized. */
+		failed = task_pid_vnr(thread);
+		/* If the pid cannot be resolved, then return -ESRCH */
+		if (unlikely(WARN_ON(failed == 0)))
+			failed = -ESRCH;
+		return failed;
+	}
+
+	return 0;
+}
+
 #endif /* CONFIG_SECCOMP_FILTER */
 
 static inline bool seccomp_may_assign_mode(unsigned long seccomp_mode)
@@ -339,24 +421,24 @@ static inline void seccomp_sync_threads(void)
 		put_seccomp_filter(thread);
 		smp_store_release(&thread->seccomp.filter,
 				  caller->seccomp.filter);
-
-		/*
-		 * Don't let an unprivileged task work around
-		 * the no_new_privs restriction by creating
-		 * a thread that sets it up, enters seccomp,
-		 * then dies.
-		 */
-		if (task_no_new_privs(caller))
-			task_set_no_new_privs(thread);
-
 		/*
 		 * Opt the other thread into seccomp if needed.
 		 * As threads are considered to be trust-realm
 		 * equivalent (see ptrace_may_access), it is safe to
 		 * allow one thread to transition the other.
 		 */
-		if (thread->seccomp.mode == SECCOMP_MODE_DISABLED)
+		if (thread->seccomp.mode == SECCOMP_MODE_DISABLED) {
+			/*
+			 * Don't let an unprivileged task work around
+			 * the no_new_privs restriction by creating
+			 * a thread that sets it up, enters seccomp,
+			 * then dies.
+			 */
+			if (task_no_new_privs(caller))
+				task_set_no_new_privs(thread);
+
 			seccomp_assign_mode(thread, SECCOMP_MODE_FILTER);
+		}
 	}
 }
 
@@ -366,7 +448,7 @@ static inline void seccomp_sync_threads(void)
  *
  * Returns filter on success or an ERR_PTR on failure.
  */
-static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
+static struct seccomp_filter * seccomp_prepare_filter(struct sock_fprog *fprog)
 {
 	struct seccomp_filter *filter;
 	unsigned long fp_size = fprog->len * sizeof(struct sock_filter);
@@ -388,7 +470,7 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 	 * This avoids scenarios where unprivileged tasks can affect the
 	 * behavior of privileged children.
 	 */
-	if (!task_no_new_privs(current) &&
+	if (!task_no_new_privs(current)	 &&
 	    security_capable_noaudit(current_cred(), current_user_ns(),
 				     CAP_SYS_ADMIN) != 0)
 		return ERR_PTR(-EACCES);
@@ -397,7 +479,7 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 	filter = kzalloc(sizeof(struct seccomp_filter) + fp_size,
 			 GFP_KERNEL|__GFP_NOWARN);
 	if (!filter)
-		return ERR_PTR(-ENOMEM);;
+		return ERR_PTR(-ENOMEM);
 	atomic_set(&filter->usage, 1);
 	filter->len = fprog->len;
 
@@ -417,7 +499,6 @@ static struct seccomp_filter *seccomp_prepare_filter(struct sock_fprog *fprog)
 		goto fail;
 
 	return filter;
-
 fail:
 	kfree(filter);
 	return ERR_PTR(ret);
@@ -542,7 +623,7 @@ static void seccomp_send_sigsys(int syscall, int reason)
 	info.si_code = SYS_SECCOMP;
 	info.si_call_addr = (void __user *)KSTK_EIP(current);
 	info.si_errno = reason;
-	info.si_arch = syscall_get_arch(current, task_pt_regs(current));
+	info.si_arch = syscall_get_arch();
 	info.si_syscall = syscall;
 	force_sig_info(SIGSYS, &info, current);
 }
@@ -576,7 +657,7 @@ int __secure_computing(int this_syscall)
 	 * been seen after TIF_SECCOMP was seen.
 	 */
 	rmb();
-
+	
 	switch (current->seccomp.mode) {
 	case SECCOMP_MODE_STRICT:
 		syscall = mode1_syscalls;
@@ -712,7 +793,7 @@ static long seccomp_set_mode_filter(unsigned int flags,
 	struct seccomp_filter *prepared = NULL;
 	long ret = -EINVAL;
 
-	/* Validate flags. */
+		/* Validate flags. */
 	if (flags & ~SECCOMP_FILTER_FLAG_MASK)
 		return -EINVAL;
 
@@ -733,11 +814,65 @@ static long seccomp_set_mode_filter(unsigned int flags,
 
 	if (!seccomp_may_assign_mode(seccomp_mode))
 		goto out;
+	/* Do not free the successfully attached filter. */
+	prepared = NULL;
+
+	seccomp_assign_mode(current, seccomp_mode);
+out:
+	spin_unlock_irq(&current->sighand->siglock);
+	if (flags & SECCOMP_FILTER_FLAG_TSYNC)
+		mutex_unlock(&current->signal->cred_guard_mutex);
+out_free:
+	seccomp_filter_free(prepared);
+	return ret;
+}
+#else
+static inline long seccomp_set_mode_filter(unsigned int flags,
+					   const char __user *filter)
+{
+	return -EINVAL;
+}
+#endif
+
+/* Common entry point for both prctl and syscall. */
+static long do_seccomp(unsigned int op, unsigned int flags,
+		       const char __user *uargs)
+{
+	switch (op) {
+	case SECCOMP_SET_MODE_STRICT:
+		if (flags != 0 || uargs != NULL)
+			return -EINVAL;
+		return seccomp_set_mode_strict();
+	case SECCOMP_SET_MODE_FILTER:
+		return seccomp_set_mode_filter(flags, uargs);
+	default:
+		return -EINVAL;
+	}
+}
+
+SYSCALL_DEFINE3(seccomp, unsigned int, op, unsigned int, flags,
+			 const char __user *, uargs)
+{
+	return do_seccomp(op, flags, uargs);
+}
+
+/**
+ * prctl_set_seccomp: configures current->seccomp.mode
+ * @seccomp_mode: requested mode to use
+ * @filter: optional struct sock_fprog for use with SECCOMP_MODE_FILTER
+ *
+ * Returns 0 on success or -EINVAL on failure.
+ */
+long prctl_set_seccomp(unsigned long seccomp_mode, char __user *filter)
+{
+	unsigned int op;
+	char __user *uargs;
 
 	ret = seccomp_attach_filter(flags, prepared);
 	if (ret)
 		goto out;
-	/* Do not free the successfully attached filter. */
+
+		/* Do not free the successfully attached filter. */
 	prepared = NULL;
 
 	seccomp_assign_mode(current, seccomp_mode);
@@ -812,3 +947,4 @@ long prctl_set_seccomp(unsigned long seccomp_mode, char __user *filter)
 	/* prctl interface doesn't have flags, so they are always zero. */
 	return do_seccomp(op, 0, uargs);
 }
+

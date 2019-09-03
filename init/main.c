@@ -90,10 +90,7 @@
 #include <asm/smp.h>
 #endif
 
-#ifdef CONFIG_SEC_GPIO_DVS
-#include <linux/secgpio_dvs.h>
-#endif
-
+#include <asm/cp15.h> 
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
@@ -114,6 +111,13 @@ extern void tc_init(void);
 unsigned long pgt_bit_array[PGT_BIT_ARRAY_LENGTH];
 EXPORT_SYMBOL(pgt_bit_array);
 #endif
+
+int boot_mode_security;
+EXPORT_SYMBOL(boot_mode_security);
+#ifdef CONFIG_TIMA_RKP_RO_CRED
+int rkp_cred_enable = 0;
+EXPORT_SYMBOL(rkp_cred_enable);
+#endif /*CONFIG_RKP_RO_CRED*/
 /*
  * Debug helper: via this flag we know that we are in 'early bootup code'
  * where only the boot processor is running with IRQ disabled.  This means
@@ -136,6 +140,10 @@ extern void time_init(void);
 /* Default late time init is NULL. archs can override this later. */
 void (*__initdata late_time_init)(void);
 extern void softirq_init(void);
+
+#ifdef CONFIG_PTRACK_DEBUG
+extern void ptrack_init(void);
+#endif
 
 /* Untouched command line saved by arch-specific code. */
 char __initdata boot_command_line[COMMAND_LINE_SIZE];
@@ -390,37 +398,27 @@ static void __init setup_command_line(char *command_line)
 
 #ifdef CONFIG_TIMA_RKP
 /* Block of Code for RKP initialization */
+extern unsigned long __v7_setup_stack;
 static noinline void rkp_init(void)
 {
-#ifdef CONFIG_TIMA_RKP_COHERENT_TT
-	struct memblock_type *type = (struct memblock_type*)(&memblock.memory);
-#endif /*CONFIG_TIMA_RKP_COHERENT_TT*/
+#ifdef CONFIG_TIMA_RKP	
+#ifdef CONFIG_TIMA_RKP_30 
+#ifdef CONFIG_SOC_EXYNOS5433
+	struct rkp_init_struct rkp_init;
 
-#ifdef CONFIG_TIMA_RKP_RO_CRED
-/* Code for initializing Credential Protection */
-	tima_send_cmd5((unsigned long)__rkp_ro_start, (unsigned long)__rkp_ro_end,
-					sizeof(struct cred), offsetof(struct task_struct, cred),
-					offsetof(struct task_struct, active_mm), 0x3f840221);		
-	tima_send_cmd5(offsetof(struct cred, uid), offsetof(struct cred, euid), 
-					offsetof(struct cred, bp_pgd), offsetof(struct cred, bp_task), 
-					offsetof(struct cred, type), 0x3f841221);
-tima_send_cmd5(offsetof(struct cred,security),offsetof(struct task_struct,pid),
-					offsetof(struct task_struct,real_parent),offsetof(struct task_struct,comm),
-					offsetof(struct mm_struct,pgd),0x3f842221);
+	rkp_init._text 	  = (unsigned long) _text;
+	rkp_init._stext   = (unsigned long) _stext;
+	rkp_init._etext   = (unsigned long) _etext;
+	rkp_init.__v7_setup_stack = (unsigned long) (& __v7_setup_stack);
 
-	printk(KERN_ERR"RKP CRED INIT %x\n", sizeof(struct cred));
-#endif /*CONFIG_TIMA_RKP_RO_CRED*/
-
-#ifdef CONFIG_TIMA_RKP
-#ifdef CONFIG_TIMA_RKP_30
-#ifdef CONFIG_TIMA_RKP_COHERENT_TT
-	tima_send_cmd2(type->cnt, __pa(type->regions), 0x3f804221);
-#endif /*CONFIG_TIMA_RKP_COHERENT_TT*/
-	tima_send_cmd5((unsigned long)_stext, (unsigned long)init_mm.pgd, (unsigned long)__init_begin, (unsigned long)__init_end,(unsigned long)__pa(pgt_bit_array),0x3f80c221);
+	tima_send_cmd5((unsigned long)&rkp_init, (unsigned long)init_mm.pgd, (unsigned long)__init_begin, (unsigned long)__init_end,(unsigned long)__pa(pgt_bit_array), 0xc);
 #else
-	tima_send_cmd4((unsigned long)_stext, (unsigned long)init_mm.pgd, (unsigned long)__init_begin, (unsigned long)__init_end, 0x3f80c221);
-#endif /* CONFIG_TIMA_RKP_30 */
-#endif /*CONFIG_TIMA_RKP*/
+	tima_send_cmd5((unsigned long)_stext, (unsigned long)init_mm.pgd, (unsigned long)__init_begin, (unsigned long)__init_end,(unsigned long)__pa(pgt_bit_array), 0xc);
+#endif
+#else
+	tima_send_cmd4((unsigned long)_stext, (unsigned long)init_mm.pgd, (unsigned long)__init_begin, (unsigned long)__init_end, 0xc);
+#endif
+#endif
 
 }
 #endif /*CONFIG_TIMA_RKP*/
@@ -439,10 +437,9 @@ static __initdata DECLARE_COMPLETION(kthreadd_done);
 static noinline void __init_refok rest_init(void)
 {
 	int pid;
-	const struct sched_param param = { .sched_priority = 1 };
-
 #ifdef CONFIG_TIMA_RKP
-	rkp_init();
+	if (boot_mode_security)
+		rkp_init();
 #endif
 	rcu_scheduler_starting();
 	/*
@@ -484,22 +481,20 @@ static int __init do_early_param(char *param, char *val, const char *unused)
 		}
 	}
 	/* We accept everything at this stage. */
-
-	/* Check Recovery Mode , 1: recovery mode, 2: factory reset mode(recovery)
-	                         otherwise normal mode*/
-	if ((strncmp(param, "androidboot.boot_recovery", 26) == 0)) {
-	        if ((strncmp(val, "1", 1) == 0)||(strncmp(val, "2", 1) == 0)) {
-				pr_info("Recovery Boot Mode \n");
-				boot_mode_recovery = 1;
-			}
-	}
-	/* Check Security Mode , 0 : normal mode, 1 : security mode */
+#ifdef CONFIG_SOC_EXYNOS5433
 	if ((strncmp(param, "androidboot.security_mode", 26) == 0)) {
 	        if ((strncmp(val, "1526595585", 10) == 0)) {
 				pr_info("Security Boot Mode \n");
 				boot_mode_security = 1;
+#ifdef CONFIG_TIMA_RKP_RO_CRED
+				rkp_cred_enable = 1;
+#endif /*CONFIG_RKP_KDP*/
 			}
 	}
+#else
+	boot_mode_security = 1;
+#endif
+
 	return 0;
 }
 
@@ -562,6 +557,9 @@ static void __init mm_init(void)
 	percpu_init_late();
 	pgtable_cache_init();
 	vmalloc_init();
+#ifdef CONFIG_PTRACK_DEBUG
+	ptrack_init();
+#endif
 }
 
 asmlinkage void __init start_kernel(void)
@@ -935,22 +933,24 @@ void __ref do_deferred_initcalls(void)
 }
 #endif
 
+#ifdef CONFIG_SEC_GPIO_DVS
+extern void gpio_dvs_check_initgpio(void);
+#endif
 
 static noinline void __init kernel_init_freeable(void);
 
 static int __ref kernel_init(void *unused)
 {
 	kernel_init_freeable();
-
 #ifdef CONFIG_SEC_GPIO_DVS
 	/************************ Caution !!! ****************************/
 	/* This function must be located in appropriate INIT position
 	 * in accordance with the specification of each BB vendor.
 	 */
 	/************************ Caution !!! ****************************/
+	pr_info("%s: GPIO DVS: check init gpio\n", __func__);
 	gpio_dvs_check_initgpio();
 #endif
-
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
 #ifndef CONFIG_DEFERRED_INITCALLS

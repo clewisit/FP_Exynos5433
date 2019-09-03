@@ -74,7 +74,6 @@ enum thermal_trip_activation_mode {
 enum thermal_trip_type {
 	THERMAL_TRIP_ACTIVE = 0,
 	THERMAL_TRIP_PASSIVE,
-	THERMAL_TRIP_HOT,
 	THERMAL_TRIP_CRITICAL,
 	THERMAL_TRIP_CONFIGURABLE_HI,
 	THERMAL_TRIP_CONFIGURABLE_LOW,
@@ -141,6 +140,7 @@ struct thermal_zone_device_ops {
 			  enum thermal_trend *);
 	int (*notify) (struct thermal_zone_device *, int,
 		       enum thermal_trip_type);
+	int (*throttle_cpu_hotplug) (struct thermal_zone_device *);
 };
 
 struct thermal_cooling_device_ops {
@@ -203,6 +203,7 @@ struct thermal_zone_device {
 	int last_temperature;
 	int emul_temperature;
 	int passive;
+	bool cooling_dev_en;
 	unsigned int forced_passive;
 	const struct thermal_zone_device_ops *ops;
 	const struct thermal_zone_params *tzp;

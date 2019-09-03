@@ -25,7 +25,7 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/regmap.h>
-#include <linux/sec_class.h>
+#include <linux/sec_sysfs.h>
 
 #define SEC_LED_SPECIFIC
 
@@ -72,9 +72,6 @@
 #define LED_ALWAYS_ON			1
 #define LED_BLINK			2
 
-#define BASE_DYNAMIC_LED_CURRENT 0x14
-#define BASE_LOW_POWER_CURRENT 0x05
-
 #define LEDBLNK_ON(time)	((time < 100) ? 0 :			\
 				(time < 500) ? time/100-1 :		\
 				(time < 3250) ? (time-500)/250+4 : 15)
@@ -84,7 +81,8 @@
 				(time < 8000) ? (time-5000)/1000+10 :	 \
 				(time < 12000) ? (time-8000)/2000+13 : 15)
 
-static u8 led_dynamic_current = BASE_DYNAMIC_LED_CURRENT;
+static u8 led_dynamic_current = 0x14;
+static u8 led_color_dynamic_current = 0x14;
 static u8 led_lowpower_mode = 0x0;
 
 enum max77843_led_color {
@@ -104,7 +102,6 @@ enum max77843_led_pattern {
 };
 
 static struct device *led_dev;
-struct device *max77843led_dev;
 
 struct max77843_rgb {
 	struct led_classdev led[4];
@@ -113,23 +110,17 @@ struct max77843_rgb {
 	unsigned int delay_off_times_ms;
 };
 
-extern int get_lcd_id(void);
 static unsigned int lcdtype_color;
-#if defined (CONFIG_SEC_FACTORY)
-#if defined(CONFIG_SEC_TRLTE_PROJECT) || defined(CONFIG_SEC_TBLTE_PROJECT)
-static int jig_val;
-extern int get_lcd_attached(char*);
+extern unsigned int lcdtype;
+#if defined(CONFIG_LEDS_USE_ED28) && defined(CONFIG_SEC_FACTORY)
+bool jig_status = false;
 
-static int __init muic_get_jig_status(char *mode)
+static int __init jig_check(char *str)
 {
-	if(get_option(&mode, &jig_val)) {
-		printk(KERN_INFO "%s = %d\n", __func__, jig_val);
-		return 0;
-	}
-	return -EINVAL;
+	jig_status = true;
+	return 0;
 }
-early_param("uart_dbg", muic_get_jig_status);
-#endif
+__setup("jig", jig_check);
 #endif
 
 static int max77843_rgb_number(struct led_classdev *led_cdev,
@@ -173,24 +164,24 @@ static void max77843_rgb_set(struct led_classdev *led_cdev,
 	if (brightness == LED_OFF) {
 		/* Flash OFF */
 		ret = max77843_update_reg(max77843_rgb->i2c,
-					MAX77843_LED_REG_LEDEN, 0 , 3 << (2*n));
+					MAX77843_RGBLED_REG_LEDEN, 0 , 3 << (2*n));
 		if (IS_ERR_VALUE(ret)) {
 			dev_err(dev, "can't write LEDEN : %d\n", ret);
 			return;
 		}
 	} else {
-		if(n == BLUE && (lcdtype_color != 0x51));
-			brightness = (brightness*5)/2;
 		/* Set current */
+		if (n==BLUE && (lcdtype_color != 51))
+			brightness = (brightness * 5) / 2;
 		ret = max77843_write_reg(max77843_rgb->i2c,
-				MAX77843_LED_REG_LED0BRT + n, brightness);
+				MAX77843_RGBLED_REG_LED0BRT + n, brightness);
 		if (IS_ERR_VALUE(ret)) {
 			dev_err(dev, "can't write LEDxBRT : %d\n", ret);
 			return;
 		}
 		/* Flash ON */
 		ret = max77843_update_reg(max77843_rgb->i2c,
-				MAX77843_LED_REG_LEDEN, 0x55, 3 << (2*n));
+				MAX77843_RGBLED_REG_LEDEN, 0x55, 3 << (2*n));
 		if (IS_ERR_VALUE(ret)) {
 			dev_err(dev, "can't write FLASH_EN : %d\n", ret);
 			return;
@@ -223,7 +214,7 @@ static void max77843_rgb_set_state(struct led_classdev *led_cdev,
 	max77843_rgb_set(led_cdev, brightness);
 
 	ret = max77843_update_reg(max77843_rgb->i2c,
-			MAX77843_LED_REG_LEDEN, led_state << (2*n), 0x3 << 2*n);
+			MAX77843_RGBLED_REG_LEDEN, led_state << (2*n), 0x3 << 2*n);
 	if (IS_ERR_VALUE(ret)) {
 		dev_err(dev, "can't write FLASH_EN : %d\n", ret);
 		return;
@@ -253,7 +244,7 @@ static unsigned int max77843_rgb_get(struct led_classdev *led_cdev)
 
 	/* Get status */
 	ret = max77843_read_reg(max77843_rgb->i2c,
-				MAX77843_LED_REG_LEDEN, &value);
+				MAX77843_RGBLED_REG_LEDEN, &value);
 	if (IS_ERR_VALUE(ret)) {
 		dev_err(dev, "can't read LEDEN : %d\n", ret);
 		return 0;
@@ -263,7 +254,7 @@ static unsigned int max77843_rgb_get(struct led_classdev *led_cdev)
 
 	/* Get current */
 	ret = max77843_read_reg(max77843_rgb->i2c,
-				MAX77843_LED_REG_LED0BRT + n, &value);
+				MAX77843_RGBLED_REG_LED0BRT + n, &value);
 	if (IS_ERR_VALUE(ret)) {
 		dev_err(dev, "can't read LED0BRT : %d\n", ret);
 		return 0;
@@ -296,7 +287,7 @@ static int max77843_rgb_ramp(struct device *dev, int ramp_up, int ramp_down)
 
 	value = (ramp_down) | (ramp_up << 4);
 	ret = max77843_write_reg(max77843_rgb->i2c,
-					MAX77843_LED_REG_LEDRMP, value);
+					MAX77843_RGBLED_REG_LEDRMP, value);
 	if (IS_ERR_VALUE(ret)) {
 		dev_err(dev, "can't write REG_LEDRMP : %d\n", ret);
 		return -ENODEV;
@@ -314,12 +305,16 @@ static int max77843_rgb_blink(struct device *dev,
 
 	pr_info("leds-max77843-rgb: %s\n", __func__);
 
-	value = (LEDBLNK_ON(delay_on) << 4) | LEDBLNK_OFF(delay_off);
-	ret = max77843_write_reg(max77843_rgb->i2c,
-					MAX77843_LED_REG_LEDBLNK, value);
-	if (IS_ERR_VALUE(ret)) {
-		dev_err(dev, "can't write REG_LEDBLNK : %d\n", ret);
+	if( delay_on > 3250 || delay_off > 12000 )
 		return -EINVAL;
+	else {
+		value = (LEDBLNK_ON(delay_on) << 4) | LEDBLNK_OFF(delay_off);
+		ret = max77843_write_reg(max77843_rgb->i2c,
+					MAX77843_RGBLED_REG_LEDBLNK, value);
+		if (IS_ERR_VALUE(ret)) {
+			dev_err(dev, "can't write REG_LEDBLNK : %d\n", ret);
+			return -EINVAL;
+		}
 	}
 
 	return ret;
@@ -330,6 +325,7 @@ static struct max77843_rgb_platform_data
 			*max77843_rgb_parse_dt(struct device *dev)
 {
 	struct max77843_rgb_platform_data *pdata;
+	struct device_node *nproot = dev->parent->of_node;
 	struct device_node *np;
 	int ret;
 	int i;
@@ -340,7 +336,7 @@ static struct max77843_rgb_platform_data
 	if (unlikely(pdata == NULL))
 		return ERR_PTR(-ENOMEM);
 
-	np = of_find_node_by_name(NULL, "rgb");
+	np = of_find_node_by_name(nproot, "rgb");
 	if (unlikely(np == NULL)) {
 		dev_err(dev, "rgb node not found\n");
 		devm_kfree(dev, pdata);
@@ -372,13 +368,6 @@ static void max77843_rgb_reset(struct device *dev)
 	max77843_rgb_ramp(dev, 0, 0);
 }
 
-void max77843_rgb_off(void)
-{
-	pr_info("leds-max77843-rgb: all leds off\n");
-	max77843_rgb_reset(max77843led_dev);
-}
-EXPORT_SYMBOL(max77843_rgb_off);
-
 static ssize_t store_max77843_rgb_lowpower(struct device *dev,
 					struct device_attribute *devattr,
 					const char *buf, size_t count)
@@ -393,15 +382,7 @@ static ssize_t store_max77843_rgb_lowpower(struct device *dev,
 	}
 
 	led_lowpower_mode = led_lowpower;
-	if (led_lowpower_mode == 1)
-		led_dynamic_current = BASE_LOW_POWER_CURRENT;
-	else {
-		if(lcdtype_color == 0x51)	//PANEL - GOLD, PINK
-			led_dynamic_current = 0x5A;
-		else
-			led_dynamic_current = BASE_DYNAMIC_LED_CURRENT;
-	}
-	pr_info("led_lowpower mode set to %i, led_dynamic_current set to %d\n", led_lowpower, led_dynamic_current);
+
 	dev_dbg(dev, "led_lowpower mode set to %i\n", led_lowpower);
 
 	return count;
@@ -439,7 +420,7 @@ static ssize_t store_max77843_rgb_pattern(struct device *dev,
 	struct max77843_rgb *max77843_rgb = dev_get_drvdata(dev);
 	unsigned int mode = 0;
 	int ret;
-	pr_info("leds-max77843-rgb: %s, lowpower_mode : %d\n", __func__,led_lowpower_mode);
+	pr_info("leds-max77843-rgb: %s\n", __func__);
 
 	ret = sscanf(buf, "%1d", &mode);
 	if (ret == 0) {
@@ -447,13 +428,16 @@ static ssize_t store_max77843_rgb_pattern(struct device *dev,
 		return count;
 	}
 
-	if (mode > POWERING)
-		return count;
-
 	/* Set all LEDs Off */
 	max77843_rgb_reset(dev);
 	if (mode == PATTERN_OFF)
 		return count;
+
+	/* Set to low power consumption mode */
+	if (led_lowpower_mode == 1)
+		led_dynamic_current = 0x5;
+	else
+		led_dynamic_current = led_color_dynamic_current;
 
 	switch (mode) {
 
@@ -466,7 +450,7 @@ static ssize_t store_max77843_rgb_pattern(struct device *dev,
 		break;
 	case MISSED_NOTI:
 		max77843_rgb_blink(dev, 500, 5000);
-			max77843_rgb_set_state(&max77843_rgb->led[BLUE], led_dynamic_current, LED_BLINK);
+		max77843_rgb_set_state(&max77843_rgb->led[BLUE], led_dynamic_current, LED_BLINK);
 		break;
 	case LOW_BATTERY:
 		max77843_rgb_blink(dev, 500, 5000);
@@ -510,6 +494,7 @@ static ssize_t store_max77843_rgb_blink(struct device *dev,
 
 	/*Reset led*/
 	max77843_rgb_reset(dev);
+	max77843_rgb_blink(dev, 0, 0);
 
 	led_r_brightness = (led_brightness & LED_R_MASK) >> 16;
 	led_g_brightness = (led_brightness & LED_G_MASK) >> 8;
@@ -784,46 +769,41 @@ static int max77843_rgb_probe(struct platform_device *pdev)
 		}
 		ret = sysfs_create_group(&max77843_rgb->led[i].dev->kobj,
 						&common_led_attr_group);
-		if (ret < 0) {
+		if (ret) {
 			dev_err(dev, "can not register sysfs attribute\n");
 			goto register_err_flash;
 		}
 	}
 
-	led_dev = device_create(sec_class, NULL, 0, max77843_rgb, "led");
+	led_dev = sec_device_create(max77843_rgb, "led");
 	if (IS_ERR(led_dev)) {
 		dev_err(dev, "Failed to create device for samsung specific led\n");
-		goto alloc_err_flash;
+		goto register_err_flash;
 	}
 
 
 	ret = sysfs_create_group(&led_dev->kobj, &sec_led_attr_group);
 	if (ret < 0) {
 		dev_err(dev, "Failed to create sysfs group for samsung specific led\n");
-		goto alloc_err_flash;
+		goto device_create_err;
 	}
 
 	platform_set_drvdata(pdev, max77843_rgb);
-
-#if defined (CONFIG_SEC_FACTORY)
-#if defined(CONFIG_SEC_TRLTE_PROJECT) || defined(CONFIG_SEC_TBLTE_PROJECT)
-	if ( (jig_val == 0) && (get_lcd_attached("GET") == 0) ) {
-		pr_info("%s:Factory MODE - No OCTA, Battery BOOTING\n", __func__);
+#if defined(CONFIG_LEDS_USE_ED28) && defined(CONFIG_SEC_FACTORY)
+	if( lcdtype == 0 && jig_status == false) {
 		max77843_rgb_set_state(&max77843_rgb->led[RED], led_dynamic_current, LED_ALWAYS_ON);
 	}
-
 #endif
-#endif
-	max77843led_dev = dev;
+	lcdtype_color = lcdtype >> 0x10;
+	if (lcdtype_color == 51)
+		led_color_dynamic_current = 0x5A;
 
-	lcdtype_color = (get_lcd_id() >> 16);
-	pr_info("leds-max77843-rgb: get_lcd_id is %d, lcdtype is %d done\n", get_lcd_id(), lcdtype_color);
-	if(lcdtype_color == 0x51)	//PANEL - GOLD, PINK
-		led_dynamic_current = 0x5A;
 	pr_info("leds-max77843-rgb: %s done\n", __func__);
 
 	return 0;
 
+device_create_err:
+	sec_device_destroy(led_dev->devt);
 register_err_flash:
 	led_classdev_unregister(&max77843_rgb->led[i]);
 alloc_err_flash_plus:
@@ -874,7 +854,7 @@ static struct platform_driver max77843_fled_driver = {
 		.shutdown = max77843_rgb_shutdown,
 	},
 	.probe		= max77843_rgb_probe,
-	.remove		= max77843_rgb_remove,
+	.remove		= __devexit_p(max77843_rgb_remove),
 };
 
 static int __init max77843_rgb_init(void)

@@ -21,9 +21,8 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_roam.c 599102 2015-11-12 11:54:39Z $
+ * $Id: wl_roam.c 599101 2015-11-12 11:51:02Z $
  */
-
 
 #include <typedefs.h>
 #include <osl.h>
@@ -187,7 +186,6 @@ void add_roam_cache(wl_bss_info_t *bi)
 {
 	int i;
 	uint8 channel;
-	char chanbuf[CHANSPEC_STR_LEN];
 
 #if defined(CUSTOMER_HW4) && defined(WES_SUPPORT)
 	if (roamscan_mode == ROAMSCAN_MODE_WES)
@@ -207,8 +205,9 @@ void add_roam_cache(wl_bss_info_t *bi)
 	}
 
 	roam_cache[n_roam_cache].ssid_len = bi->SSID_len;
-	channel = wf_chspec_ctlchan(bi->chanspec);
-	WL_DBG(("CHSPEC  = %s, CTL %d\n", wf_chspec_ntoa_ex(bi->chanspec, chanbuf), channel));
+	channel = (bi->ctl_ch == 0) ? CHSPEC_CHANNEL(bi->chanspec) : bi->ctl_ch;
+	WL_DBG(("CHSPEC 0x%X %d, CTL %d\n",
+		bi->chanspec, CHSPEC_CHANNEL(bi->chanspec), bi->ctl_ch));
 	roam_cache[n_roam_cache].chanspec =
 		(channel <= CH_MAX_2G_CHANNEL ? band2G : band5G) | band_bw | channel;
 	memcpy(roam_cache[n_roam_cache].ssid, bi->SSID, bi->SSID_len);
@@ -232,7 +231,6 @@ int get_roam_channel_list(int target_chan,
 	chanspec_t *channels, const wlc_ssid_t *ssid, int ioctl_ver)
 {
 	int i, n = 1;
-	char chanbuf[CHANSPEC_STR_LEN];
 
 	/* first index is filled with the given target channel */
 	channels[0] = (target_chan & WL_CHANSPEC_CHAN_MASK) |
@@ -252,8 +250,7 @@ int get_roam_channel_list(int target_chan,
 
 			ch = CHSPEC_CHANNEL(ch) | (is_2G ? band2G : band5G) | band_bw;
 			if (band_match && !is_duplicated_channel(channels, n, ch)) {
-				WL_DBG(("%s: Chanspec = %s\n", __FUNCTION__,
-					wf_chspec_ntoa_ex(ch, chanbuf)));
+				WL_DBG((" %s: %03d(0x%X)\n", __FUNCTION__, CHSPEC_CHANNEL(ch), ch));
 				channels[n++] = ch;
 			}
 		}
@@ -275,8 +272,8 @@ int get_roam_channel_list(int target_chan,
 			band_match && !is_duplicated_channel(channels, n, ch) &&
 			(memcmp(roam_cache[i].ssid, ssid->SSID, ssid->SSID_len) == 0)) {
 			/* match found, add it */
-			WL_DBG(("%s: Chanspec = %s\n", __FUNCTION__,
-				wf_chspec_ntoa_ex(ch, chanbuf)));
+			WL_DBG((" %s: %03d(0x%04X)\n", __FUNCTION__,
+				CHSPEC_CHANNEL(ch), ch));
 			channels[n++] = ch;
 		}
 	}

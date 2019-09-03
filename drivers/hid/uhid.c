@@ -173,6 +173,34 @@ static int uhid_hid_input(struct input_dev *input, unsigned int type,
 	return 0;
 }
 
+static int fb_state_change(struct notifier_block *nb,
+    unsigned long val, void *data)
+{
+	struct fb_event *evdata = data;
+	unsigned int blank;
+    dbg_hid("fb_state_change");
+	if (val != FB_EVENT_BLANK)
+		return 0;
+
+	blank = *(int *)evdata->data;
+
+	switch (blank) {
+	case FB_BLANK_POWERDOWN:
+		lcd_is_on = false;
+		break;
+	case FB_BLANK_UNBLANK:
+		lcd_is_on = true;
+		break;
+	default:
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+static struct notifier_block fb_block = {
+	.notifier_call = fb_state_change,
+};
+
 static int uhid_hid_parse(struct hid_device *hid)
 {
 	struct uhid_device *uhid = hid->driver_data;

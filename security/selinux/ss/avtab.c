@@ -88,7 +88,7 @@ static int avtab_insert(struct avtab *h, struct avtab_key *key, struct avtab_dat
 			/* extended perms may not be unique */
 			if (specified & AVTAB_XPERMS)
 				break;
-			return -EEXIST;
+		  return -EEXIST;
 		}
 		if (key->source_type < cur->key.source_type)
 			break;
@@ -385,7 +385,6 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 	struct avtab_datum datum;
 	struct avtab_extended_perms xperms;
 	__le32 buf32[ARRAY_SIZE(xperms.perms.p)];
-	unsigned int android_m_compat_optype = 0;
 	int i, rc;
 	unsigned set;
 
@@ -469,7 +468,6 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 		printk(KERN_ERR "SELinux: avtab: truncated entry\n");
 		return rc;
 	}
-
 	items = 0;
 	key.source_type = le16_to_cpu(buf16[items++]);
 	key.target_type = le16_to_cpu(buf16[items++]);
@@ -499,7 +497,7 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 		printk(KERN_ERR "SELinux:  avtab:  more than one specifier\n");
 		return -EINVAL;
 	}
-
+	
 	if ((vers < POLICYDB_VERSION_XPERMS_IOCTL) &&
 			(key.specified & AVTAB_XPERMS)) {
 		printk(KERN_ERR "SELinux:  avtab:  policy version %u does not "
@@ -513,22 +511,10 @@ int avtab_read_item(struct avtab *a, void *fp, struct policydb *pol,
 			printk(KERN_ERR "SELinux: avtab: truncated entry\n");
 			return rc;
 		}
-		if (avtab_android_m_compat ||
-			    ((xperms.specified != AVTAB_XPERMS_IOCTLFUNCTION) &&
-			    (xperms.specified != AVTAB_XPERMS_IOCTLDRIVER) &&
-			    (vers == POLICYDB_VERSION_XPERMS_IOCTL))) {
-			xperms.driver = xperms.specified;
-			if (android_m_compat_optype)
-				xperms.specified = AVTAB_XPERMS_IOCTLDRIVER;
-			else
-				xperms.specified = AVTAB_XPERMS_IOCTLFUNCTION;
-			avtab_android_m_compat_set();
-		} else {
-			rc = next_entry(&xperms.driver, fp, sizeof(u8));
-			if (rc) {
-				printk(KERN_ERR "SELinux: avtab: truncated entry\n");
-				return rc;
-			}
+		rc = next_entry(&xperms.driver, fp, sizeof(u8));
+		if (rc) {
+			printk(KERN_ERR "SELinux: avtab: truncated entry\n");
+			return rc;
 		}
 		rc = next_entry(buf32, fp, sizeof(u32)*ARRAY_SIZE(xperms.perms.p));
 		if (rc) {
@@ -622,14 +608,11 @@ int avtab_write_item(struct policydb *p, struct avtab_node *cur, void *fp)
 	rc = put_entry(buf16, sizeof(u16), 4, fp);
 	if (rc)
 		return rc;
-
+		
 	if (cur->key.specified & AVTAB_XPERMS) {
-		if (avtab_android_m_compat == 0) {
-			rc = put_entry(&cur->datum.u.xperms->specified,
-					sizeof(u8), 1, fp);
-			if (rc)
-				return rc;
-		}
+		rc = put_entry(&cur->datum.u.xperms->specified, sizeof(u8), 1, fp);
+		if (rc)
+			return rc;
 		rc = put_entry(&cur->datum.u.xperms->driver, sizeof(u8), 1, fp);
 		if (rc)
 			return rc;

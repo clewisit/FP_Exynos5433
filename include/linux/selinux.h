@@ -24,9 +24,8 @@ struct kern_ipc_perm;
  * selinux_is_enabled - is SELinux enabled?
  */
 bool selinux_is_enabled(void);
-
 /**
- * selinux_is_enforcing - is SELinux enforcing?
+ * selinux_is_enforcing - is SELinux Enforcing?
  */
 bool selinux_is_enforcing(void);
 #else

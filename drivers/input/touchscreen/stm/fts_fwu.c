@@ -1,3 +1,4 @@
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -51,6 +52,7 @@ static int fts_fw_wait_for_flash_ready(struct fts_ts_info *info)
 		}
 		msleep(20);
 	}
+
 	return 0;
 }
 
@@ -195,22 +197,19 @@ static int fts_fw_wait_for_event(struct fts_ts_info *info, unsigned char eid)
 	return rc;
 }
 
-
 static void fts_set_octa_type(struct fts_ts_info *info, unsigned char otype)
 {
 	unsigned char SetTA[4] = {0xB0, 0x00, 0xC8, 0x07};
 	unsigned char SetSYNC[4] = {0xB0, 0x07, 0x0A, 0x59};
 
-	if (strncmp(info->dt_data->project, "TB", 2) == 0) {
+	if (strncmp(info->board->project_name, "TB", 2) == 0) {
 		tsp_debug_info(true, info->dev, "%s: not set octa gpio\n",
 				__func__);
 		return;
-	} else {
-		tsp_debug_info(true, info->dev, "%s: Set type: %d\n",
-				__func__, otype);
-	}
+	} else
+		tsp_debug_info(true, info->dev, "%s: Set type: %d\n",	__func__, otype);
 
-	if (otype == FTS_OCTA_TYPE_OLD) {
+	if (otype == 0) {
 		SetTA[3] = 0x03;
 		SetSYNC[3] = 0x49;
 	}
@@ -219,60 +218,14 @@ static void fts_set_octa_type(struct fts_ts_info *info, unsigned char otype)
 	info->fts_write_reg(info, &SetSYNC[0], 4);
 }
 
-#ifdef USE_SEC_STRING_FEATURE
-static void fts_enable_custom_library(struct fts_ts_info *info)
-{
-	unsigned char EnableCLIB[4] = {0xB0, 0x01, 0x10, 0x77};
-
-#ifdef CONFIG_SEC_TBLTE_PROJECT
-	EnableCLIB[3] =  0x7D;
-#endif
-	tsp_debug_info(true, info->dev, "%s\n", __func__);
-
-	info->fts_write_reg(info, &EnableCLIB[0], 4);
-}
-static void fts_check_custom_library(struct fts_ts_info *info)
-{
-	int rc;
-	unsigned char regAdd[3] = {0xd0, 0x00, 0x50};
-	unsigned char buf[3];
-	unsigned char ver=0;
-
-	rc = info->fts_read_reg(info, regAdd, 3, buf, 2);
-	//ver=buf[0]; // S LTE
-	ver=buf[1];	// T LTE
-
-	tsp_debug_info(true, info->dev, "%s, CHN on =%d\n", __func__, ver);
-
-	if (rc < 0) {
-		tsp_debug_info(true, info->dev, "%s, read fail,%d\n", __func__, rc);
-	}else if (ver==0) {
-		fts_enable_custom_library(info);
-		info->fts_command(info, FTS_CMD_SAVE_FWCONFIG);
-		msleep(300);
-
-		info->fts_systemreset(info);
-		info->fts_wait_for_ready(info);
-	}
-}
-#endif
-
 void fts_fw_init(struct fts_ts_info *info)
 {
-	fts_set_octa_type(info,
-			(info->panel_revision >= FTS_OCTA_TYPE_SEPERATOR) ?
-			FTS_OCTA_TYPE_NEW : FTS_OCTA_TYPE_OLD);
+	if (info->digital_rev == FTS_DIGITAL_REV_2) {
+		fts_set_octa_type(info, info->panel_revision == 2 ? 1 : 0);
 
-#ifdef USE_SEC_STRING_FEATURE
-	fts_enable_custom_library(info);
-#endif
-
-	/* fts_set_octa_type : OCTA FPCB changed : exchange HSYNC GPIO, TA GPIO
-	 * fts_enable_custom_library : enable String library when use BlackUI/QuickApp/QuickCAM.. etc..
-	 * after all Firmware config sending, send SAVE command.
-	 */
-	info->fts_command(info, FTS_CMD_SAVE_FWCONFIG);
-	msleep(300);
+		info->fts_command(info, FTS_CMD_SAVE_FWCONFIG);
+		msleep(300);
+	}
 
 	info->fts_command(info, SLEEPOUT);
 	msleep(50);
@@ -287,7 +240,7 @@ void fts_fw_init(struct fts_ts_info *info)
 	fts_fw_wait_for_event(info, STATUS_EVENT_MUTUAL_AUTOTUNE_DONE);
 
 #ifdef FTS_SUPPORT_TOUCH_KEY
-	if (info->dt_data->support_mskey) {
+	if (info->board->support_mskey) {
 		info->fts_command(info, FTS_CMD_MSKEY_AUTOTUNE);
 		msleep(100);
 	}
@@ -297,7 +250,6 @@ void fts_fw_init(struct fts_ts_info *info)
 	msleep(300);
 	fts_fw_wait_for_event(info, STATUS_EVENT_SELF_AUTOTUNE_DONE);
 
-	/* ToDo : re-define sleep timing. below sleep time is so long. */
 	info->fts_command(info, FTS_CMD_SAVE_CX_TUNING);
 	msleep(400);
 
@@ -310,7 +262,7 @@ void fts_fw_init(struct fts_ts_info *info)
 	info->fts_command(info, SENSEON);
 
 #ifdef FTS_SUPPORT_TOUCH_KEY
-	if (info->dt_data->support_mskey)
+	if (info->board->support_mskey)
 		info->fts_command(info, FTS_CMD_KEY_SENSE_ON);
 #endif
 }
@@ -346,9 +298,7 @@ const int fts_fw_updater(struct fts_ts_info *info, unsigned char *fw_data)
 #ifdef FTS_SUPPORT_NOISE_PARAM
 			info->fts_get_noise_param_address(info);
 #endif
-#ifdef FTS_SUPPORT_QEEXO_ROI
-			info->get_fts_roi(info);
-#endif
+
 			if (fw_main_version == info->fw_main_version_of_ic) {
 				tsp_debug_info(true, info->dev,
 					  "%s: Success Firmware update\n",
@@ -366,9 +316,24 @@ const int fts_fw_updater(struct fts_ts_info *info, unsigned char *fw_data)
 			break;
 		}
 	}
+
 	return retval;
 }
 EXPORT_SYMBOL(fts_fw_updater);
+
+#define FW_IMAGE_NAME_D1_S			"tsp_stm/stm_s_sync.fw"
+#define FW_IMAGE_NAME_D2_TR		"tsp_stm/stm_t.fw"
+#define FW_IMAGE_NAME_D2_TB			"tsp_stm/stm_tb.fw"
+#define FW_IMAGE_NAME_D2_TB_SEPER_1			"tsp_stm/stm_tb_seper_1.fw"		/* LCD ID 0001 : seperated */
+#define FW_IMAGE_NAME_D2_TB_SEPER_2			"tsp_stm/stm_tb_seper_2.fw"		/* LCD ID 0010 : seperated */
+#define FW_IMAGE_NAME_D2_TB_INTEG			"tsp_stm/stm_tb_integ.fw"		/* LCD ID 0000, 0011, ... : integrated */
+#define CONFIG_ID_D1_S				0x2C
+#define CONFIG_ID_D2_TR				0x2E
+#define CONFIG_ID_D2_TB				0x30
+#define CONFIG_OFFSET_BIN_D1			0xf822
+#define CONFIG_OFFSET_BIN_D2			0x1E822
+#define RX_OFFSET_BIN_D2				0x1E834
+#define TX_OFFSET_BIN_D2				0x1E835
 
 static bool fts_skip_firmware_update(struct fts_ts_info *info, unsigned char *fw_data)
 {
@@ -378,23 +343,25 @@ static bool fts_skip_firmware_update(struct fts_ts_info *info, unsigned char *fw
 	num_rx = fw_data[RX_OFFSET_BIN_D2];
 	num_tx = fw_data[TX_OFFSET_BIN_D2];
 
-	if (strncmp(info->dt_data->project, "TB", 2) == 0) {
-		if ((config_id != CONFIG_ID_D2_TB) && (config_id != CONFIG_ID_D2_TB_SEPERATE)) {
-			tsp_debug_info(true, info->dev, "%s: Skip update because config ID is mismatched.\n",
-				__func__);
-			//return true;// tempory blocking to update f/w for TB, it will be remove later
+	if (strncmp(info->board->project_name, "TB", 2) == 0) {
+		if (config_id != CONFIG_ID_D2_TB) {
+			tsp_debug_info(true, info->dev, "%s: Skip update because config ID(%0x2X) is mismatched.\n",
+				__func__,config_id);
+			// return true; // tempory blocking to update f/w for TB, it will be remove later.. Xtopher
 		}
 
-		if ((num_rx != info->SenseChannelLength)
-			|| (num_tx != info->ForceChannelLength)) {
-			tsp_debug_info(true, info->dev, "%s: Skip update because revision is mismatched.\n",
-				__func__);
-			//return true;// tempory blocking to update f/w for TB, it will be remove later
+		if ((num_rx != info->board->SenseChannelLength)
+			|| (num_tx != info->board->ForceChannelLength)) {
+			tsp_debug_info(true, info->dev,
+				"%s: Skip update because revision is mismatched. rx[%d] tx[%d]\n",
+				__func__, num_rx, num_tx);
+			//return true;  // tempory blocking to update f/w for TB, it will be remove later.. Xtopher
 		}
-	} else if (strncmp(info->dt_data->project, "TR", 2) == 0) {
+	} else if (strncmp(info->board->project_name, "TR", 2) == 0) {
 		if (config_id != CONFIG_ID_D2_TR) {
-			tsp_debug_info(true, info->dev, "%s: Skip update because config ID is mismatched.\n",
-				__func__);
+			tsp_debug_info(true, info->dev,
+				"%s: Skip update because config ID is mismatched. config_id[%d]\n",
+				__func__, config_id);
 			return true;
 		}
 	} else
@@ -404,90 +371,75 @@ out:
 	return false;
 }
 
-#ifdef CONFIG_SEC_TBLTE_PROJECT
 static unsigned char fts_get_sync_register(struct fts_ts_info *info)
 {
-	unsigned char regAdd[4] = { 0xb2, 0x07, 0x0a, 0x04 };
-	unsigned char data[FTS_EVENT_SIZE];
-	int retry = 0;
-	unsigned char val = 0;
+    unsigned char regAdd[4] = { 0xb2, 0x07, 0x0a, 0x04 };
+    unsigned char data[FTS_EVENT_SIZE];
+    int retry = 0;
+    unsigned char var = 0;
 
-	info->fts_write_reg(info, &regAdd[0], 4);
+    info->fts_write_reg(info, &regAdd[0], 4);
+    memset(data, 0x0, FTS_EVENT_SIZE);
+    regAdd[0] = READ_ONE_EVENT;
 
-	memset(data, 0x0, FTS_EVENT_SIZE);
-	regAdd[0] = READ_ONE_EVENT;
-
-	while (info->fts_read_reg(info, &regAdd[0], 1, (unsigned char *)data, FTS_EVENT_SIZE)) {
-		if ((data[0] == 0x12) && (data[1] == regAdd[1]) && (data[2] == regAdd[2])) {
-			val = data[3];
-			tsp_debug_info(true, info->dev,"%s: Sync Register : 0x%02x\n",__func__, val);
-			break;
-		}
-
-		if (retry++ > FTS_RETRY_COUNT) {
-			tsp_debug_err(true, info->dev,"%s: Time Over\n", __func__);
-			break;
-		}
-	}
-	return val;
+    while (info->fts_read_reg(info, &regAdd[0], 1, (unsigned char *)data,
+                                           FTS_EVENT_SIZE)) {
+                if ((data[0] == 0x12) && (data[1] == regAdd[1])
+                            && (data[2] == regAdd[2])) {
+                            var = data[3];
+                            tsp_debug_info(true, info->dev,
+                                        "%s: Sync Register : 0x%02x\n",
+                            __func__, var);
+                            break;
+                }
+                if (retry++ > FTS_RETRY_COUNT) {
+                            tsp_debug_err(true, info->dev,
+                                        "%s: Time Over\n", __func__);
+                            break;
+                }
+    }
+    return var;
 }
-#endif 
 
-extern unsigned int system_rev;
 int fts_fw_update_on_probe(struct fts_ts_info *info)
 {
-	int retval;
+	int retval = 0;
 	const struct firmware *fw_entry = NULL;
 	unsigned char *fw_data = NULL;
 	char fw_path[FTS_MAX_FW_PATH];
 	const struct fts64_header *header;
-	unsigned char SYS_STAT[2] = { '\0', '\0' };
+	unsigned char SYS_STAT[2] = {0, };
 
-
-#ifdef USE_SEC_STRING_FEATURE
-	fts_check_custom_library(info);	
-#endif
-
-	if (info->digital_rev == FTS_DIGITAL_REV_2) {
-
-		if (strncmp(info->dt_data->project, "TB", 2) == 0) {
-
+	if (info->board->firmware_name)
+		info->firmware_name = info->board->firmware_name;
+	else if (info->digital_rev == FTS_DIGITAL_REV_1)
+		info->firmware_name = FW_IMAGE_NAME_D1_S;
+	else if (info->digital_rev == FTS_DIGITAL_REV_2) {
+		if (strncmp(info->board->project_name, "TB", 2) == 0){
 			/* LCD ID 0001, 0010 : seperated
 			 * FTS_FIRMWARE_NAME_TB... : seperated
 			 *
-			 * 08.14 -> remove TB_ID01(6689 firmware)
-			 * LCD ID 0001, 0010 -> FTS_FIRMWARE_NAME_TB_ID02
+			 * LCD ID 0001 / 0010 firmware divide.
+			 * recent, back key sensitivity problem.
+			 * LCD ID 0001 -> FW_IMAGE_NAME_D2_TB_SEPER_1
+			 * LCD ID 0010 -> FW_IMAGE_NAME_D2_TB_SEPER_2
 			 *
 			 * LCD ID 0000, 0011, ... : integrated
 			 * FTS_FIRMWARE_NAME : integrated */
-			if ((info->panel_revision == 0x01) || (info->panel_revision == 0x02))
-				info->firmware_name = FTS_FIRMWARE_NAME_TB_ID02;
+				if (info->panel_revision == 0x01)
+					info->firmware_name = FW_IMAGE_NAME_D2_TB_SEPER_1;
+				else if (info->panel_revision == 0x02)
+					info->firmware_name = FW_IMAGE_NAME_D2_TB_SEPER_2;
 			else
-				info->firmware_name = FTS_FIRMWARE_NAME;
-
-		} else if (strncmp(info->dt_data->project, "TR", 2) == 0) {
-
-			info->firmware_name = FTS_FIRMWARE_NAME;
-
-		} else {
-
-			info->firmware_name = FTS_FIRMWARE_NAME_NULL;
-
+				info->firmware_name = FW_IMAGE_NAME_D2_TB_INTEG;
 		}
-
-	} else {
-		info->firmware_name = FTS_FIRMWARE_NAME_NULL;
+		else
+			info->firmware_name = FW_IMAGE_NAME_D2_TR;
 	}
 
 	snprintf(fw_path, FTS_MAX_FW_PATH, "%s", info->firmware_name);
 	tsp_debug_info(true, info->dev, "%s: Load firmware : %s, Digital_rev : %d\n", __func__,
 		  fw_path, info->digital_rev);
-
-	if (!info->firmware_name) {
-		tsp_debug_info(true, info->dev, "%s: firmawer name is NULL, return\n", __func__);
-		return 0;
-	}
-
 	retval = request_firmware(&fw_entry, fw_path, info->dev);
 	if (retval) {
 		tsp_debug_err(true, info->dev,
@@ -496,16 +448,14 @@ int fts_fw_update_on_probe(struct fts_ts_info *info)
 		goto done;
 	}
 
-	if ((info->digital_rev == FTS_DIGITAL_REV_1) &&
-		fw_entry->size != (FW_IMAGE_SIZE_D1 + sizeof(struct fts64_header))) {
+	if (info->digital_rev == FTS_DIGITAL_REV_1 && fw_entry->size!=(FW_IMAGE_SIZE_D1 + sizeof(struct fts64_header))) {
 		tsp_debug_err(true, info->dev,
 			"%s: Firmware image %s not available for FTS D1\n", __func__,
 			fw_path);
 		goto done;
 	}
 
-	if ((info->digital_rev == FTS_DIGITAL_REV_2) &&
-		fw_entry->size != (FW_IMAGE_SIZE_D2 + sizeof(struct fts64_header))) {
+	if (info->digital_rev == FTS_DIGITAL_REV_2 && fw_entry->size!=(FW_IMAGE_SIZE_D2 + sizeof(struct fts64_header))) {
 		tsp_debug_err(true, info->dev,
 			"%s: Firmware image %s not available for FTS D2\n", __func__,
 			fw_path);
@@ -534,65 +484,31 @@ int fts_fw_update_on_probe(struct fts_ts_info *info)
 	if (fts_skip_firmware_update(info, fw_data))
 		goto done;
 
-	tsp_debug_info(true, info->dev,"system rev=%d \n", system_rev);
-#ifdef CONFIG_SEC_TBLTE_PROJECT
-	if(system_rev < 12){
-        // check only main firmware version.
-		if (info->fw_main_version_of_ic < info->fw_main_version_of_bin)
-			retval = fts_fw_updater(info, fw_data);
-		else
-			retval = FTS_NOT_ERROR;
-	}else{
-		// check core + config + main 
-		if ((info->fw_main_version_of_ic < info->fw_main_version_of_bin)
-			|| (info->config_version_of_ic < info->config_version_of_bin)
-			|| (info->fw_version_of_ic < info->fw_version_of_bin)) {
-			retval = fts_fw_updater(info, fw_data);
-		
-		} else {
-			if (fts_get_sync_register(info) != 0x51) {
-				tsp_debug_info(true, info->dev,"sync reg is not 0x51, so firmup\n");
-				retval = fts_fw_updater(info, fw_data);
-			} else {
-				retval = FTS_NOT_ERROR;
-			}
-		}
-	}
-#else
-        // check core + config + main 
 	if ((info->fw_main_version_of_ic < info->fw_main_version_of_bin)
-		|| (info->config_version_of_ic < info->config_version_of_bin)
-		|| (info->fw_version_of_ic < info->fw_version_of_bin))
+		|| ((info->config_version_of_ic < info->config_version_of_bin))
+		|| ((info->fw_version_of_ic < info->fw_version_of_bin)))
+	{
 		retval = fts_fw_updater(info, fw_data);
+	}
+	else if ((strncmp(info->board->project_name, "TB", 2) == 0) && (fts_get_sync_register(info)!=0x51)) {
+		retval = fts_fw_updater(info, fw_data);
+	}
 	else
 		retval = FTS_NOT_ERROR;
-#endif		
-#if 0
-	/* Temporary code, will be removed */
-	if (info->panel_revision == 0x01) {
-		if ((info->fw_main_version_of_ic != info->fw_main_version_of_bin)
-			|| ((info->config_version_of_ic != info->config_version_of_bin)))
-			retval = fts_fw_updater(info, fw_data);
-	}
-#endif
-	if (fts_get_system_status(info, &SYS_STAT[0], &SYS_STAT[1]) >= 0)
+
+	if (fts_get_system_status(info, &SYS_STAT[0], &SYS_STAT[1]) >= 0) {
 		if (SYS_STAT[0] != SYS_STAT[1]) {
 			info->fts_systemreset(info);
-			msleep(10);
+			msleep(20);
 			info->fts_wait_for_ready(info);
 			fts_fw_init(info);
 		}
+	}
+
 done:
 	if (fw_entry)
 		release_firmware(fw_entry);
-/*
-	if (retval < 0) {
-		if (fts_get_system_status(info, &SYS_STAT[0], &SYS_STAT[1]) >= 0) {
-			if (SYS_STAT[0] != SYS_STAT[1])
-				fts_fw_init(info);
-		}
-	}
-*/
+
 	return retval;
 }
 EXPORT_SYMBOL(fts_fw_update_on_probe);
@@ -767,3 +683,4 @@ int fts_fw_update_on_hidden_menu(struct fts_ts_info *info, int update_type)
 	return retval;
 }
 EXPORT_SYMBOL(fts_fw_update_on_hidden_menu);
+

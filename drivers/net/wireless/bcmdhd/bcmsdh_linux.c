@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: bcmsdh_linux.c 461444 2014-03-12 02:55:28Z $
+ * $Id: bcmsdh_linux.c 461443 2014-03-12 02:40:59Z $
  */
 
 /**
@@ -44,6 +44,7 @@ extern void dhdsdio_isr(void * args);
 #include <bcmutils.h>
 #include <dngl_stats.h>
 #include <dhd.h>
+
 #include <dhd_linux.h>
 
 /* driver info, initialized when bcmsdh_register is called */

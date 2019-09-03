@@ -14,30 +14,25 @@
  */
 #include "ssp.h"
 
-#if defined(CONFIG_SEC_LENTIS_PROJECT)
-#define SSP_BMI_FIRMWARE_REVISION	14041100
+#define SSP_FIRMWARE_REVISION		14060701
+
+/* SPI Speeds */
+#define BOOT_SPI_HZ 4800000
+#define NORM_SPI_HZ  4800000
+/* Bootloader id */
+#define BL_EXTENDED_ID_BYTE_ID      0x24u
+#define BL_EXTENDED_ID_BYTE_VERSION 0x01u
+
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+#define SSP_BMI_FIRMWARE_REVISION		14031700
 #define BL_BMI_FW_NAME   "ssp_at_bmi.fw"
 #endif
 
-#if defined(CONFIG_SEC_TRLTE_PROJECT) || defined(CONFIG_SEC_TBLTE_PROJECT)
-#define SSP_FIRMWARE_REVISION		16030700
-#define BL_FW_NAME			"ssp_at_tr.fw"
-#else
-#define SSP_FIRMWARE_REVISION		16031400
-#define BL_FW_NAME			"ssp_at.fw"
-#endif
-
 /* Bootload mode cmd */
-#define BL_UMS_FW_NAME			"ssp_at.bin"
-#define BL_CRASHED_FW_NAME		"ssp_crashed_at.fw"
-
-/* SPI Speeds */
-#define BOOT_SPI_HZ			4800000
-#define NORM_SPI_HZ			4800000
-/* Bootloader id */
-#define BL_UMS_FW_PATH			255
-#define BL_EXTENDED_ID_BYTE_ID		0x24u
-#define BL_EXTENDED_ID_BYTE_VERSION	0x01u
+#define BL_FW_NAME   "ssp_at.fw"
+#define BL_UMS_FW_NAME   "ssp_at.bin"
+#define BL_CRASHED_FW_NAME  "ssp_crashed_at.fw"
+#define BL_UMS_FW_PATH   255
 /* Bootloader mode status */
 #define BL_WAITING_BOOTLOAD_CMD		0xc0	/* valid 7 6 bit only */
 #define BL_WAITING_FRAME_DATA		0x80	/* valid 7 6 bit only */
@@ -47,22 +42,12 @@
 #define BL_APP_CRC_FAIL			0x40	/* valid 7 8 bit only */
 #define BL_BOOT_STATUS_MASK		0x3f
 
-#define BL_VERSION			0x24
+#define BL_VERSION				0x24
 #define BL_EXTENDED			0x01
 
 /* Command to unlock bootloader */
 #define BL_UNLOCK_CMD_MSB		0xaa
 #define BL_UNLOCK_CMD_LSB		0xdc
-
-unsigned int get_module_rev(struct ssp_data *data)
-{
-#if defined(CONFIG_SEC_LENTIS_PROJECT)
-	if (data->ap_rev < MPU6500_REV)
-		return SSP_BMI_FIRMWARE_REVISION;
-#endif
-
-	return SSP_FIRMWARE_REVISION;
-}
 
 static int ssp_wait_for_chg(struct ssp_data *data)
 {
@@ -86,6 +71,18 @@ static int ssp_wait_for_chg(struct ssp_data *data)
 	return 0;
 }
 
+unsigned int get_module_rev(struct ssp_data *data)
+{
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	if (data->ap_rev < MPU6500_REV)
+		return SSP_BMI_FIRMWARE_REVISION;
+	else
+		return SSP_FIRMWARE_REVISION;
+#else
+	return SSP_FIRMWARE_REVISION;
+#endif
+}
+
 static int spi_read_wait_chg(struct ssp_data *data, uint8_t *buffer, int len)
 {
 	int ret;
@@ -94,7 +91,6 @@ static int spi_read_wait_chg(struct ssp_data *data, uint8_t *buffer, int len)
 
 	if (ret < 0) {
 		pr_err("[SSP] Error %d while waiting for chg\n", ret);
-		return ret;
 	}
 
 	ret = spi_read(data->spi, buffer, len);
@@ -114,7 +110,6 @@ static int spi_write_wait_chg(struct ssp_data *data, const uint8_t *buffer, int 
 
 	if (ret < 0) {
 		pr_err("[SSP] Error %d while waiting for chg\n", ret);
-		return ret;
 	}
 
 	ret = spi_write(data->spi, buffer, len);
@@ -426,7 +421,7 @@ static int change_to_bootmode(struct ssp_data *data)
 
 	if (gpio_get_value(data->mcu_int2))
 	{
-		pr_err("[SSP]: Failed to enter bootmode in %s\n", __func__);
+		pr_err("[SSP]: Failed to enter bootmode in %s", __func__);
 		return -EIO;
 	}
 	return 0;
@@ -442,81 +437,47 @@ void toggle_mcu_reset(struct ssp_data *data)
 
 	msleep(50);
 
-	if (!gpio_get_value(data->mcu_int2))
-		pr_err("[SSP]: SH has entered bootloader in %s!\n", __func__);
-}
-
-#if SSP_STATUS_MONITOR
-void toggle_mcu_hw_reset(struct ssp_data *data)
-{
-	gpio_set_value_cansleep(data->rst, 0);
-	usleep_range(1000, 1200);
-	pr_err("[SSP]:%s !\n", __func__);
-
-	gpio_set_value_cansleep(data->ap_int, 0); //MCU request
-
-	if(data->reg_hub) {
-		int ret = regulator_disable(data->reg_hub);
-		if (ret) {
-			pr_err("[SSP] Failed to disable reg_hub regulators: %d\n", ret);
-		}
-		msleep(400);
-		ret = regulator_enable(data->reg_hub);
-		if (ret) {
-			pr_err("[SSP] Failed to enable reg_hub regulators: %d\n", ret);
-		}
-		usleep_range(1000, 1200);
-	}
-	else
-		pr_err("[SSP] No VCC regulator even hw_reset is called SW reset excuted!");
-
-	gpio_set_value_cansleep(data->rst, 1);
-
-	if(data->reg_hub)
-		msleep(1200);
-	else
-		msleep(50);
-
-	gpio_set_value_cansleep(data->ap_int, 1); //MCU request
-
 	if (!gpio_get_value(data->mcu_int2)) {
 		pr_err("[SSP]: SH has entered bootloader in %s !!!!!", __func__);
+		//return -EIO;
 	}
+	//return 0;
 }
-#endif
 
 static int update_mcu_bin(struct ssp_data *data, int iBinType)
 {
 
-	int iRet = SUCCESS;
-	uint8_t bfr[3];
+        int iRet = SUCCESS;
+        uint8_t bfr[3];
 
-	pr_info("[SSP] ssp_change_to_bootmode\n");
-	change_to_bootmode(data);
+        pr_info("[SSP] ssp_change_to_bootmode\n");
+        change_to_bootmode(data);
 
-	iRet = spi_read_wait_chg(data, bfr, 3);
-	if (iRet < 0) {
-		pr_err("[SSP] unable to contact bootmode = %d\n", iRet);
-		   return iRet;
-	}
+        iRet = spi_read_wait_chg(data, bfr, 3);
+        if (iRet < 0) {
+	        pr_err("[SSP] unable to contact bootmode = %d\n", iRet);
+               return iRet;
+        }
 
-	if (bfr[1] != BL_VERSION ||
-		 bfr[2] != BL_EXTENDED) {
-			pr_err("[SSP] unable to enter bootmode= %d\n", iRet);
-			return -EIO;
-	}
+        if (bfr[1] != BL_VERSION ||
+             bfr[2] != BL_EXTENDED) {
+                pr_err("[SSP] unable to enter bootmode= %d\n", iRet);
+                return -EIO;
+        }
 
 	switch (iBinType) {
 	case KERNEL_BINARY:
-#if defined(CONFIG_SEC_LENTIS_PROJECT)
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
 		if (data->ap_rev < MPU6500_REV)
-			iRet = load_kernel_fw_bootmode(data, BL_BMI_FW_NAME);
+			iRet = load_kernel_fw_bootmode(data,	BL_BMI_FW_NAME);
 		else
+			iRet = load_kernel_fw_bootmode(data,	BL_FW_NAME);
+#else
+		iRet = load_kernel_fw_bootmode(data,	BL_FW_NAME);
 #endif
-			iRet = load_kernel_fw_bootmode(data, BL_FW_NAME);
 		break;
 	case KERNEL_CRASHED_BINARY:
-		iRet = load_kernel_fw_bootmode(data, BL_CRASHED_FW_NAME);
+		iRet = load_kernel_fw_bootmode(data,	BL_CRASHED_FW_NAME);
 		break;
 	case UMS_BINARY:
 		iRet = load_ums_fw_bootmode(data, BL_UMS_FW_NAME);
@@ -535,9 +496,6 @@ int forced_to_download_binary(struct ssp_data *data, int iBinType)
 
 	ssp_dbg("[SSP] %s, mcu binany update!\n", __func__);
 	ssp_enable(data, false);
-#if SSP_STATUS_MONITOR
-	cancel_delayed_work_sync(&data->polling_work);
-#endif
 
 	data->fw_dl_state = FW_DL_STATE_DOWNLOADING;
 
@@ -565,7 +523,7 @@ int forced_to_download_binary(struct ssp_data *data, int iBinType)
 	pr_info("[SSP] %s, DL state = %d\n", __func__, data->fw_dl_state);
 	ssp_enable(data, true);
 
-	get_proximity_threshold(data);
+	proximity_open_lcd_ldi(data);
 	proximity_open_calibration(data);
 	accel_open_calibration(data);
 	gyro_open_calibration(data);
@@ -574,9 +532,6 @@ int forced_to_download_binary(struct ssp_data *data, int iBinType)
 	data->fw_dl_state = FW_DL_STATE_DONE;
 	pr_info("[SSP] %s, DL state = %d\n", __func__, data->fw_dl_state);
 
-#if SSP_STATUS_MONITOR
-	schedule_delayed_work(&data->polling_work, msecs_to_jiffies(7000));
-#endif
 	iRet = SUCCESS;
 out:
 	return iRet;
@@ -587,7 +542,14 @@ int check_fwbl(struct ssp_data *data)
 	int iRet;
 	unsigned int fw_revision;
 
-	fw_revision = get_module_rev(data);
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	if (data->ap_rev < MPU6500_REV)
+		fw_revision = SSP_BMI_FIRMWARE_REVISION;
+	else
+		fw_revision = SSP_FIRMWARE_REVISION;
+#else
+	fw_revision = SSP_FIRMWARE_REVISION;
+#endif
 	data->uCurFirmRev = get_firmware_rev(data);
 
 	if ((data->uCurFirmRev == SSP_INVALID_REVISION) \

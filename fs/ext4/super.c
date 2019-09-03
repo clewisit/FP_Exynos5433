@@ -373,6 +373,8 @@ static void ext4_journal_commit_callback(journal_t *journal, transaction_t *txn)
 	spin_unlock(&sbi->s_md_lock);
 }
 
+extern int ignore_fs_panic;
+
 /* Deal with the reporting of failure conditions on a filesystem such as
  * inconsistencies detected or read IO failures.
  *
@@ -390,7 +392,7 @@ static void ext4_journal_commit_callback(journal_t *journal, transaction_t *txn)
 
 static void ext4_handle_error(struct super_block *sb, char* buf)
 {
-	if (sb->s_flags & MS_RDONLY)
+	if (sb->s_flags & MS_RDONLY || ignore_fs_panic)
 		return;
 
 	if (!test_opt(sb, ERRORS_CONT)) {
@@ -404,13 +406,9 @@ static void ext4_handle_error(struct super_block *sb, char* buf)
 		ext4_msg(sb, KERN_CRIT, "Remounting filesystem read-only");
 		sb->s_flags |= MS_RDONLY;
 	}
-	if (test_opt(sb, ERRORS_PANIC)) {
-		if (EXT4_SB(sb)->s_journal &&
-		  !(EXT4_SB(sb)->s_journal->j_flags & JBD2_REC_ERR))
-			return;
-		panic("EXT4-fs (device %s): panic forced after error\n",
-			sb->s_id);
-	}
+	if (test_opt(sb, ERRORS_PANIC))
+		panic("EXT4-fs (device %s): panic! %s\n",
+			sb->s_id, buf?buf:"no message");
 }
 
 void __ext4_error(struct super_block *sb, const char *function,
@@ -621,10 +619,7 @@ void __ext4_abort(struct super_block *sb, const char *function,
 			jbd2_journal_abort(EXT4_SB(sb)->s_journal, -EIO);
 		save_error_info(sb, function, line);
 	}
-	if (test_opt(sb, ERRORS_PANIC)) {
-		if (EXT4_SB(sb)->s_journal &&
-		  !(EXT4_SB(sb)->s_journal->j_flags & JBD2_REC_ERR))
-			return;
+	if (test_opt(sb, ERRORS_PANIC) && !ignore_fs_panic)
 		panic("EXT4-fs panic from previous error\n");
 	}
 }
@@ -3323,6 +3318,28 @@ int ext4_calculate_overhead(struct super_block *sb)
 }
 
 
+static ext4_fsblk_t ext4_calculate_resv_clusters(struct ext4_sb_info *sbi)
+{
+	ext4_fsblk_t resv_clusters;
+
+	/*
+	 * By default we reserve 2% or 4096 clusters, whichever is smaller.
+	 * This should cover the situations where we can not afford to run
+	 * out of space like for example punch hole, or converting
+	 * uninitialized extents in delalloc path. In most cases such
+	 * allocation would require 1, or 2 blocks, higher numbers are
+	 * very rare.
+	 */
+	resv_clusters = ext4_blocks_count(sbi->s_es) >> sbi->s_cluster_bits;
+
+	do_div(resv_clusters, 50);
+	/* Do not reserve clusters */
+	resv_clusters = min_t(ext4_fsblk_t, resv_clusters, 0);
+
+	return resv_clusters;
+}
+
+
 static int ext4_reserve_clusters(struct ext4_sb_info *sbi, ext4_fsblk_t count)
 {
 	ext4_fsblk_t clusters = ext4_blocks_count(sbi->s_es) >>
@@ -4099,7 +4116,7 @@ no_journal:
 
 	atomic64_set(&sbi->s_r_blocks_count, ext4_r_blocks_count(es));
 
-	err = ext4_reserve_clusters(sbi, 0);
+	err = ext4_reserve_clusters(sbi, ext4_calculate_resv_clusters(sbi));
 	if (err) {
 		ext4_msg(sb, KERN_ERR, "failed to reserve %llu clusters for "
 			 "reserved pool", 0ULL);

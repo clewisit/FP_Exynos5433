@@ -35,36 +35,34 @@
 #include <linux/timer.h>
 #include <linux/list.h>
 #include <linux/rtc.h>
-#include <linux/time.h>
 #include <linux/regulator/consumer.h>
+#include <linux/ssp_platformdata.h>
+#ifdef CONFIG_SENSORS_SSP_ATMEL
 #include <linux/spi/spi.h>
-#include <linux/battery/sec_battery.h>
+#endif
+#ifdef CONFIG_SENSORS_SSP_SENSORHUB
+#include "ssp_sensorhub.h"
+#endif
+#include <linux/sec_batt.h>
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #undef CONFIG_HAS_EARLYSUSPEND
 #endif
 
-#ifdef CONFIG_SENSORS_SSP_SENSORHUB
-#include "ssp_sensorhub.h"
-#endif
-
-#define SSP_DBG		0
-#define SSP_DATA_DBG 0
-#define SSP_FUNC_DBG 0
-#define SSP_SEC_DEBUG	0
+#define SSP_DBG		1
 
 #define SUCCESS		1
 #define FAIL		0
 #define ERROR		-1
-
-/* ssp mcu device ID */
-#define DEVICE_ID		0x55
 
 #define FACTORY_DATA_MAX	100
 
 #if SSP_DBG
 #define SSP_FUNC_DBG 1
 #define SSP_DATA_DBG 0
+
+/* ssp mcu device ID */
+#define DEVICE_ID			0x55
 
 #define ssp_dbg(format, ...) do { \
 	printk(KERN_INFO format, ##__VA_ARGS__); \
@@ -94,16 +92,6 @@
 #define PROX_AVG_READ_NUM	80
 #define DEFAULT_RETRIES		3
 #define DATA_PACKET_SIZE	960
-
-#if defined(CONFIG_SEC_KCCAT6_PROJECT)
-#define SSP_STATUS_MONITOR	1
-#else
-#define SSP_STATUS_MONITOR	0
-#endif
-#if SSP_STATUS_MONITOR
-#define SSP_MONITOR_TIME	4
-extern int current_cable_type;
-#endif
 
 /* SSP Binary Type */
 enum {
@@ -158,32 +146,32 @@ enum {
 #define GYROSCOPE_DPS2000		2000
 
 /* Gesture Sensor Current */
-#define DEFUALT_IR_CURRENT		100 //0xF0
+#define DEFUALT_IR_CURRENT    100 //0xF0
 
 /* kernel -> ssp manager cmd*/
-#define SSP_LIBRARY_SLEEP_CMD		(1 << 5)
+#define SSP_LIBRARY_SLEEP_CMD	(1 << 5)
 #define SSP_LIBRARY_LARGE_DATA_CMD	(1 << 6)
-#define SSP_LIBRARY_WAKEUP_CMD		(1 << 7)
+#define SSP_LIBRARY_WAKEUP_CMD	(1 << 7)
 
 /* AP -> SSP Instruction */
-#define MSG2SSP_INST_BYPASS_SENSOR_ADD		0xA1
+#define MSG2SSP_INST_BYPASS_SENSOR_ADD	0xA1
 #define MSG2SSP_INST_BYPASS_SENSOR_REMOVE	0xA2
-#define MSG2SSP_INST_REMOVE_ALL			0xA3
+#define MSG2SSP_INST_REMOVE_ALL		0xA3
 #define MSG2SSP_INST_CHANGE_DELAY		0xA4
 #define MSG2SSP_INST_LIBRARY_ADD		0xB1
 #define MSG2SSP_INST_LIBRARY_REMOVE		0xB2
-#define MSG2SSP_INST_LIB_NOTI			0xB4
-#define MSG2SSP_INST_LIB_DATA			0xC1
+#define MSG2SSP_INST_LIB_NOTI		0xB4
+#define MSG2SSP_INST_LIB_DATA		0xC1
 
 #define MSG2SSP_AP_MCU_SET_GYRO_CAL		0xCD
 #define MSG2SSP_AP_MCU_SET_ACCEL_CAL		0xCE
 #define MSG2SSP_AP_STATUS_SHUTDOWN		0xD0
 #define MSG2SSP_AP_STATUS_WAKEUP		0xD1
-#define MSG2SSP_AP_STATUS_SLEEP			0xD2
+#define MSG2SSP_AP_STATUS_SLEEP		0xD2
 #define MSG2SSP_AP_STATUS_RESUME		0xD3
 #define MSG2SSP_AP_STATUS_SUSPEND		0xD4
-#define MSG2SSP_AP_STATUS_RESET			0xD5
-#define MSG2SSP_AP_STATUS_POW_CONNECTED		0xD6
+#define MSG2SSP_AP_STATUS_RESET		0xD5
+#define MSG2SSP_AP_STATUS_POW_CONNECTED	0xD6
 #define MSG2SSP_AP_STATUS_POW_DISCONNECTED	0xD7
 #define MSG2SSP_AP_TEMPHUMIDITY_CAL_DONE	0xDA
 #define MSG2SSP_AP_MCU_SET_DUMPMODE		0xDB
@@ -192,17 +180,17 @@ enum {
 #define MSG2SSP_AP_MCU_BATCH_COUNT		0xDF
 
 #define MSG2SSP_AP_WHOAMI			0x0F
-#define MSG2SSP_AP_FIRMWARE_REV			0xF0
+#define MSG2SSP_AP_FIRMWARE_REV		0xF0
 #define MSG2SSP_AP_SENSOR_FORMATION		0xF1
-#define MSG2SSP_AP_SENSOR_PROXTHRESHOLD		0xF2
-#define MSG2SSP_AP_SENSOR_BARCODE_EMUL		0xF3
+#define MSG2SSP_AP_SENSOR_PROXTHRESHOLD	0xF2
+#define MSG2SSP_AP_SENSOR_BARCODE_EMUL	0xF3
 #define MSG2SSP_AP_SENSOR_SCANNING		0xF4
 #define MSG2SSP_AP_SET_MAGNETIC_HWOFFSET	0xF5
 #define MSG2SSP_AP_GET_MAGNETIC_HWOFFSET	0xF6
 #define MSG2SSP_AP_SENSOR_GESTURE_CURRENT	0xF7
-#define MSG2SSP_AP_GET_THERM			0xF8
-#define MSG2SSP_AP_GET_BIG_DATA			0xF9
-#define MSG2SSP_AP_SET_BIG_DATA			0xFA
+#define MSG2SSP_AP_GET_THERM		0xF8
+#define MSG2SSP_AP_GET_BIG_DATA		0xF9
+#define MSG2SSP_AP_SET_BIG_DATA		0xFA
 #define MSG2SSP_AP_START_BIG_DATA		0xFB
 #define MSG2SSP_AP_SET_MAGNETIC_STATIC_MATRIX	0xFD
 #define MSG2SSP_AP_SENSOR_TILT			0xEA
@@ -213,8 +201,7 @@ enum {
 #define MSG2SSP_AP_MOBEAM_COUNT_SET		0x33
 #define MSG2SSP_AP_MOBEAM_START			0x34
 #define MSG2SSP_AP_MOBEAM_STOP			0x35
-#define MSG2SSP_AP_GEOMAG_LOGGING		0x36
-#define MSG2SSP_AP_SENSOR_LPF			0x37
+
 #define MSG2SSP_AP_FUSEROM			0X01
 
 /* voice data */
@@ -223,44 +210,75 @@ enum {
 #define TYPE_WAKE_UP_VOICE_SOUND_SOURCE_GRAMMER	0x02
 
 /* Factory Test */
-#define ACCELEROMETER_FACTORY			0x80
-#define GYROSCOPE_FACTORY			0x81
-#define GEOMAGNETIC_FACTORY			0x82
-#define PRESSURE_FACTORY			0x85
-#define GESTURE_FACTORY				0x86
-#define TEMPHUMIDITY_CRC_FACTORY		0x88
-#define GYROSCOPE_TEMP_FACTORY			0x8A
-#define GYROSCOPE_DPS_FACTORY			0x8B
-#define MCU_FACTORY				0x8C
-#define MCU_SLEEP_FACTORY			0x8D
+#define ACCELEROMETER_FACTORY	0x80
+#define GYROSCOPE_FACTORY		0x81
+#define GEOMAGNETIC_FACTORY		0x82
+#define PRESSURE_FACTORY		0x85
+#define GESTURE_FACTORY		0x86
+#define TEMPHUMIDITY_CRC_FACTORY	0x88
+#define GYROSCOPE_TEMP_FACTORY	0x8A
+#define GYROSCOPE_DPS_FACTORY	0x8B
+#define MCU_FACTORY		0x8C
+#define MCU_SLEEP_FACTORY		0x8D
 
 /* Factory data length */
 #define ACCEL_FACTORY_DATA_LENGTH		1
 #define GYRO_FACTORY_DATA_LENGTH		36
 #define MAGNETIC_FACTORY_DATA_LENGTH		26
 #define PRESSURE_FACTORY_DATA_LENGTH		1
-#define MCU_FACTORY_DATA_LENGTH			5
-#define	GYRO_TEMP_FACTORY_DATA_LENGTH		2
-#define	GYRO_DPS_FACTORY_DATA_LENGTH		1
+#define MCU_FACTORY_DATA_LENGTH		5
+#define	GYRO_TEMP_FACTORY_DATA_LENGTH	2
+#define	GYRO_DPS_FACTORY_DATA_LENGTH	1
 #define TEMPHUMIDITY_FACTORY_DATA_LENGTH	1
-#define MCU_SLEEP_FACTORY_DATA_LENGTH		FACTORY_DATA_MAX
+#define MCU_SLEEP_FACTORY_DATA_LENGTH	FACTORY_DATA_MAX
 #define GESTURE_FACTORY_DATA_LENGTH		4
-
-#define DEFUALT_HIGH_THRESHOLD			130
-#define DEFUALT_LOW_THRESHOLD			90
-
-#define DEFUALT_CAL_HIGH_THRESHOLD		100
-#define DEFUALT_CAL_LOW_THRESHOLD		55
-
-#if defined(CONFIG_SEC_LENTIS_PROJECT)
-#define MPU6500_REV	6
-#endif
 
 /* SSP -> AP ACK about write CMD */
 #define MSG_ACK		0x80	/* ACK from SSP to AP */
 #define MSG_NAK		0x70	/* NAK from SSP to AP */
 
-#define MAX_COMP_BUFF	60
+/* Accelerometer sensor*/
+#if defined(CONFIG_SENSORS_SSP_BMI058)
+/* 14bits */
+#define MAX_ACCEL_1G	4096
+#define MAX_ACCEL_2G	8191
+#define MIN_ACCEL_2G	-8192
+#define MAX_ACCEL_4G	16384
+#elif defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+#define MPU6500_REV		2	/*KCAT6 */
+/* 14bits */
+#define MAX_ACCEL_1G_BMI058	4096
+#define MAX_ACCEL_2G_BMI058	8191
+#define MIN_ACCEL_2G_BMI058	-8192
+#define MAX_ACCEL_4G_BMI058	16384
+/* 16bits */
+#define MAX_ACCEL_1G	16384
+#define MAX_ACCEL_2G	32767
+#define MIN_ACCEL_2G	-32768
+#define MAX_ACCEL_4G	65536
+#else
+/* 16bits */
+#define MAX_ACCEL_1G	16384
+#define MAX_ACCEL_2G	32767
+#define MIN_ACCEL_2G	-32768
+#define MAX_ACCEL_4G	65536
+#endif
+
+#define MAX_GYRO	32767
+#define MIN_GYRO	-32768
+
+#define MAX_COMP_BUFF 60
+
+/* temphumidity sensor*/
+struct shtc1_buffer {
+	u16 batt[MAX_COMP_BUFF];
+	u16 chg[MAX_COMP_BUFF];
+	s16 temp[MAX_COMP_BUFF];
+	u16 humidity[MAX_COMP_BUFF];
+	u16 baro[MAX_COMP_BUFF];
+	u16 gyro[MAX_COMP_BUFF];
+	char len;
+};
 
 /* SSP_INSTRUCTION_CMD */
 enum {
@@ -295,8 +313,6 @@ enum {
 	BIO_HRM_RAW,
 	BIO_HRM_RAW_FAC,
 	BIO_HRM_LIB,
-	SHAKE_CAM = 22,
-	TSP_ANGLE = 23,
 	SENSOR_MAX,
 };
 
@@ -338,15 +354,20 @@ struct sensor_value {
 			u16 g;
 			u16 b;
 			u16 w;
+#if defined(CONFIG_SENSORS_SSP_TMG399X)
 			u8 a_time;
 			u8 a_gain;
+#elif defined(CONFIG_SENSORS_SSP_MAX88921)
+			u16 ir_cmp;
+			u16 amb_pga;
+#endif
 		};
 		u8 step_det;
 		u8 sig_motion;
-		u32 step_diff;
 		u8 prox[4];
 		u8 data[20];
 		s32 pressure[3];
+		u32 step_diff;
 		struct meta_data_event meta_data;
 	};
 	u64 timestamp;
@@ -367,15 +388,14 @@ struct hw_offset_data {
 };
 
 /* ssp_msg options bit*/
-#define SSP_SPI		0	/* read write mask */
+#define SSP_SPI			0	/* read write mask */
 #define SSP_RETURN	2	/* write and read option */
 #define SSP_GYRO_DPS	3	/* gyro dps mask */
-#define SSP_INDEX	3	/* data index mask */
+#define SSP_INDEX		3	/* data index mask */
 
 #define SSP_SPI_MASK		(3 << SSP_SPI)	/* read write mask */
 #define SSP_GYRO_DPS_MASK	(3 << SSP_GYRO_DPS)
-/* dump index mask. Index is up to 8191 */
-#define SSP_INDEX_MASK		(8191 << SSP_INDEX)
+#define SSP_INDEX_MASK		(8191 << SSP_INDEX)	/* dump index mask. Index is up to 8191 */
 
 struct ssp_msg {
 	u8 cmd;
@@ -411,25 +431,9 @@ enum {
 	BIG_TYPE_MAX,
 };
 
-enum {
-	BATCH_MODE_NONE = 0,
-	BATCH_MODE_RUN,
-};
-
-struct ssp_time_diff {
-	u16 batch_count;
-	u16 batch_mode;
-	u64 time_diff;
-	u64 irq_diff;
-	u16 batch_count_fixed;
-};
-
 struct ssp_data {
 	struct iio_dev *accel_indio_dev;
 	struct iio_dev *gyro_indio_dev;
-	struct iio_dev *uncal_gyro_indio_dev;
-	struct iio_dev *mag_indio_dev;
-	struct iio_dev *uncal_mag_indio_dev;
 	struct iio_dev *rot_indio_dev;
 	struct iio_dev *game_rot_indio_dev;
 	struct iio_dev *step_det_indio_dev;
@@ -444,20 +448,22 @@ struct ssp_data {
 	struct input_dev *light_input_dev;
 	struct input_dev *prox_input_dev;
 	struct input_dev *temp_humi_input_dev;
+	struct input_dev *mag_input_dev;
+	struct input_dev *uncal_mag_input_dev;
 	struct input_dev *gesture_input_dev;
 	struct input_dev *sig_motion_input_dev;
+	struct input_dev *uncalib_gyro_input_dev;
 	struct input_dev *step_cnt_input_dev;
 	struct input_dev *meta_input_dev;
 
+#ifdef CONFIG_SENSORS_SSP_ATMEL
 	struct spi_device *spi;
+#endif
 	struct i2c_client *client;
 	struct wake_lock ssp_wake_lock;
 	struct timer_list debug_timer;
 	struct workqueue_struct *debug_wq;
 	struct work_struct work_debug;
-#if SSP_STATUS_MONITOR
-	struct delayed_work polling_work;
-#endif
 	struct calibraion_data accelcal;
 	struct calibraion_data gyrocal;
 	struct hw_offset_data magoffset;
@@ -471,6 +477,7 @@ struct ssp_data {
 	struct device *prox_device;
 	struct device *light_device;
 	struct device *ges_device;
+	struct device *temphumidity_device;
 #ifdef CONFIG_SENSORS_SSP_MOBEAM
 	struct device *mobeam_device;
 #endif
@@ -486,16 +493,13 @@ struct ssp_data {
 	bool bAccelAlert;
 	bool bProximityRawEnabled;
 	bool bGeomagneticRawEnabled;
+	bool bGeomagneticLogged;
 	bool bBarcodeEnabled;
 	bool bMcuDumpMode;
 	bool bBinaryChashed;
 	bool bProbeIsDone;
 	bool bDumping;
 	bool bTimeSyncing;
-	bool bSuspended;
-#if SSP_STATUS_MONITOR
-	bool bRefreshing;
-#endif
 
 	unsigned int uProxCanc;
 	unsigned int uCrosstalk;
@@ -504,8 +508,6 @@ struct ssp_data {
 	unsigned int uProxLoThresh;
 	unsigned int uProxHiThresh_default;
 	unsigned int uProxLoThresh_default;
-	unsigned int uProxHiThresh_cal;
-	unsigned int uProxLoThresh_cal;
 	unsigned int uIr_Current;
 	unsigned char uFuseRomData[3];
 	unsigned char uMagCntlRegData;
@@ -518,11 +520,7 @@ struct ssp_data {
 	unsigned int uComFailCnt;
 	unsigned int uResetCnt;
 	unsigned int uTimeOutCnt;
-	unsigned int uListEmptyCnt;
 	unsigned int uIrqCnt;
-#if SSP_STATUS_MONITOR
-	unsigned int uSubIrqCnt;
-#endif
 	unsigned int uDumpCnt;
 
 	int sealevelpressure;
@@ -537,11 +535,11 @@ struct ssp_data {
 
 	atomic_t aSensorEnable;
 	int64_t adDelayBuf[SENSOR_MAX];
-	u64 lastTimestamp[SENSOR_MAX];
 	s32 batchLatencyBuf[SENSOR_MAX];
 	s8 batchOptBuf[SENSOR_MAX];
-	bool reportedData[SENSOR_MAX];
 
+	int (*wakeup_mcu)(void);
+	int (*set_mcu_reset)(int);
 	void (*get_sensor_data[SENSOR_MAX])(char *, int *,
 		struct sensor_value *);
 	void (*report_sensor_data[SENSOR_MAX])(struct ssp_data *,
@@ -560,17 +558,37 @@ struct ssp_data {
 	int fw_dl_state;
 	u8 mag_matrix_size;
 	u8 *mag_matrix;
+#ifdef CONFIG_SENSORS_SSP_SHTC1
+	char *comp_engine_ver;
+	struct platform_device *pdev_pam_temp;
+	struct s3c_adc_client *adc_client;
+	u8 cp_thm_adc_channel;
+	u8 cp_thm_adc_arr_size;
+	u8 batt_thm_adc_arr_size;
+	u8 chg_thm_adc_arr_size;
+	struct thm_adc_table *cp_thm_adc_table;
+	struct thm_adc_table *batt_thm_adc_table;
+	struct thm_adc_table *chg_thm_adc_table;
+	struct mutex cp_temp_adc_lock;
+	struct mutex bulk_temp_read_lock;
+	struct shtc1_buffer* bulk_buffer;
+#endif
+#ifdef CONFIG_SENSORS_SSP_ATMEL
 	struct mutex comm_mutex;
 	struct mutex pending_mutex;
-	struct mutex tsp_mutex;
+#endif
 
 	int mcu_int1;
 	int mcu_int2;
 	int ap_int;
 	int rst;
 	int chg;
+	int sns_combination;
+#if defined(CONFIG_SENSORS_SSP_YAS532)
+	s16 *static_matrix;
+#endif
 	struct regulator *reg_hub;
-	struct regulator *reg_sns;	/* regulator ctnl for each sensor */
+	struct regulator *reg_sns;
 
 	struct list_head pending_list;
 	void (*ssp_big_task[BIG_TYPE_MAX])(struct work_struct *);
@@ -584,12 +602,6 @@ struct ssp_big {
 	u32 addr;
 };
 
-int ssp_iio_configure_ring(struct iio_dev *);
-void ssp_iio_unconfigure_ring(struct iio_dev *);
-int ssp_iio_probe_trigger(struct ssp_data *,
-	struct iio_dev *, struct iio_trigger *);
-void ssp_iio_remove_trigger(struct iio_trigger *);
-
 #ifdef CONFIG_SENSORS_SSP_MOBEAM
 struct reg_index_table {
 	unsigned char reg;
@@ -597,14 +609,16 @@ struct reg_index_table {
 };
 #endif
 
+int ssp_iio_configure_ring(struct iio_dev *);
+void ssp_iio_unconfigure_ring(struct iio_dev *);
+int ssp_iio_probe_trigger(struct ssp_data *, struct iio_dev *, struct iio_trigger *);
+void ssp_iio_remove_trigger(struct iio_trigger *);
+
 void ssp_enable(struct ssp_data *, bool);
 int ssp_spi_async(struct ssp_data *, struct ssp_msg *);
 int ssp_spi_sync(struct ssp_data *, struct ssp_msg *, int);
 void clean_pending_list(struct ssp_data *);
 void toggle_mcu_reset(struct ssp_data *);
-#if SSP_STATUS_MONITOR
-void toggle_mcu_hw_reset(struct ssp_data *);
-#endif
 int initialize_mcu(struct ssp_data *);
 int initialize_input_dev(struct ssp_data *);
 int initialize_sysfs(struct ssp_data *);
@@ -616,6 +630,7 @@ void initialize_gyro_factorytest(struct ssp_data *);
 void initialize_pressure_factorytest(struct ssp_data *);
 void initialize_magnetic_factorytest(struct ssp_data *);
 void initialize_gesture_factorytest(struct ssp_data *data);
+void initialize_temphumidity_factorytest(struct ssp_data *data);
 void remove_accel_factorytest(struct ssp_data *);
 void remove_gyro_factorytest(struct ssp_data *);
 void remove_prox_factorytest(struct ssp_data *);
@@ -623,6 +638,7 @@ void remove_light_factorytest(struct ssp_data *);
 void remove_pressure_factorytest(struct ssp_data *);
 void remove_magnetic_factorytest(struct ssp_data *);
 void remove_gesture_factorytest(struct ssp_data *data);
+void remove_temphumidity_factorytest(struct ssp_data *data);
 #ifdef CONFIG_SENSORS_SSP_MOBEAM
 void initialize_mobeam(struct ssp_data *data);
 void remove_mobeam(struct ssp_data *data);
@@ -646,6 +662,7 @@ int flush(struct ssp_data *, u8);
 int get_batch_count(struct ssp_data *, u8);
 int select_irq_msg(struct ssp_data *);
 int get_chipid(struct ssp_data *);
+int get_fuserom_data(struct ssp_data *);
 int set_big_data_start(struct ssp_data *, u8 , u32);
 int mag_open_hwoffset(struct ssp_data *);
 int mag_store_hwoffset(struct ssp_data *);
@@ -653,8 +670,11 @@ int set_hw_offset(struct ssp_data *);
 int get_hw_offset(struct ssp_data *);
 int set_gyro_cal(struct ssp_data *);
 int set_accel_cal(struct ssp_data *);
+#if defined (CONFIG_SENSORS_SSP_YAS532)
+int set_static_matrix(struct ssp_data *data);
+#endif
 int set_sensor_position(struct ssp_data *);
-int initialize_magnetic_sensor(struct ssp_data *);
+int set_magnetic_static_matrix(struct ssp_data *);
 void sync_sensor_state(struct ssp_data *);
 void set_proximity_threshold(struct ssp_data *, unsigned int, unsigned int);
 void set_proximity_barcode_enable(struct ssp_data *, bool);
@@ -667,10 +687,7 @@ int parse_dataframe(struct ssp_data *, char *, int);
 void enable_debug_timer(struct ssp_data *);
 void disable_debug_timer(struct ssp_data *);
 int initialize_debug_timer(struct ssp_data *);
-#if SSP_STATUS_MONITOR
-int initialize_polling_work(struct ssp_data *);
-#endif
-void get_proximity_threshold(struct ssp_data *);
+int proximity_open_lcd_ldi(struct ssp_data *);
 void report_meta_data(struct ssp_data *, struct sensor_value *);
 void report_acc_data(struct ssp_data *, struct sensor_value *);
 void report_gyro_data(struct ssp_data *, struct sensor_value *);
@@ -690,8 +707,7 @@ void report_uncalib_gyro_data(struct ssp_data *, struct sensor_value *);
 void report_step_cnt_data(struct ssp_data *, struct sensor_value *);
 int print_mcu_debug(char *, int *, int);
 void report_temp_humidity_data(struct ssp_data *, struct sensor_value *);
-void report_tsp_angle_data(struct ssp_data *, struct sensor_value *);
-void report_shake_cam_data(struct ssp_data *, struct sensor_value *);
+void report_bulk_comp_data(struct ssp_data *data);
 unsigned int get_module_rev(struct ssp_data *data);
 void reset_mcu(struct ssp_data *);
 int queue_refresh_task(struct ssp_data *data, int delay);
@@ -719,11 +735,14 @@ ssize_t mcu_sleep_factorytest_show(struct device *,
 	struct device_attribute *, char *);
 ssize_t mcu_sleep_factorytest_store(struct device *,
 	struct device_attribute *, const char *, size_t);
+unsigned int ssp_check_sec_dump_mode(void);
 
+// ATMEL FEATURE?
 void ssp_dump_task(struct work_struct *work);
 void ssp_read_big_library_task(struct work_struct *work);
 void ssp_send_big_library_task(struct work_struct *work);
 void ssp_pcm_dump_task(struct work_struct *work);
+void ssp_temp_task(struct work_struct *work);
 
 
 int set_time(struct ssp_data *);

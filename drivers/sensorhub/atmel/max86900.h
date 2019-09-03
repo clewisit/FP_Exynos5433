@@ -81,8 +81,10 @@ struct max86900_device_data
 	struct mutex i2clock;
 	struct mutex activelock;
 	struct mutex storelock;
+	struct regulator *vdd_1p8;
 	struct regulator *vdd_3p3;
-	const char *led_3p3;
+	const char *vldo39;
+	const char *vldo40;
 	bool *bio_status;
 	atomic_t is_enable;
 	atomic_t is_suspend;
@@ -99,7 +101,6 @@ struct max86900_device_data
 	u8 eol_test_status;
 	u16 led;
 	u16 sample_cnt;
-	int hrm_vdd_en;
 	int hrm_int;
 	int irq;
 	int hrm_temp;

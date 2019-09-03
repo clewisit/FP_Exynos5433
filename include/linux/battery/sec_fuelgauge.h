@@ -27,14 +27,14 @@
 #include <linux/battery/fuelgauge/max17042_fuelgauge.h>
 #elif defined(CONFIG_FUELGAUGE_MAX17048)
 #include <linux/battery/fuelgauge/max17048_fuelgauge.h>
-#elif defined(CONFIG_FUELGAUGE_MAX17050)
-#include <linux/battery/fuelgauge/max17050_fuelgauge.h>
 #elif defined(CONFIG_FUELGAUGE_MAX77823)
 #include <linux/battery/fuelgauge/max77823_fuelgauge.h>
-#else
-struct sec_fg_info {
-	bool dummy;
-};
+#elif defined(CONFIG_FUELGAUGE_MAX77843)
+#include <linux/battery/fuelgauge/max77843_fuelgauge.h>
+#elif defined(CONFIG_FUELGAUGE_MAX17050)
+#include <linux/battery/fuelgauge/max17050_fuelgauge.h>
+#elif defined(CONFIG_FUELGAUGE_RT5033)
+#include <linux/battery/fuelgauge/rt5033_fuelgauge.h>
 #endif
 
 struct sec_fuelgauge_reg_data {
@@ -45,7 +45,7 @@ struct sec_fuelgauge_reg_data {
 
 struct sec_fuelgauge_info {
 	struct i2c_client		*client;
-	sec_fuelgauge_platform_data_t *pdata;
+	sec_battery_platform_data_t *pdata;
 	struct power_supply		psy_fg;
 	struct delayed_work isr_work;
 
@@ -102,15 +102,6 @@ ssize_t sec_fg_show_attrs(struct device *dev,
 ssize_t sec_fg_store_attrs(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
-
-#ifdef CONFIG_OF
-#if defined(CONFIG_FUELGAUGE_MAX77823)
-void board_fuelgauge_init(struct max77823_fuelgauge_data *fuelgauge);
-#else
-extern void board_fuelgauge_init(struct sec_fuelgauge_info *fuelgauge);
-#endif
-extern bool sec_bat_check_jig_status(void);
-#endif
 
 #define SEC_FG_ATTR(_name)				\
 {							\

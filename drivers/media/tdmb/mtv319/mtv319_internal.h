@@ -277,37 +277,37 @@ static INLINE void rtv_EnableTSIF(void)
 static INLINE void rtv_ConfigureTsifFormat(void)
 {
 #if defined(RTV_TSIF_FORMAT_0) /* EN_high, CLK_rising */
-	RTV_REG_SET(0xA4, 0x89);
+	RTV_REG_SET(0xA4, 0x09);
 	RTV_REG_SET(0xA5, 0x80);
 	RTV_REG_SET(0xAF, 0x00);
 
 #elif defined(RTV_TSIF_FORMAT_1) /* EN_high, CLK_falling */
-	RTV_REG_SET(0xA4, 0x89);
+	RTV_REG_SET(0xA4, 0x09);
 	RTV_REG_SET(0xA5, 0x00);
 	RTV_REG_SET(0xAF, 0x00);
 
 #elif defined(RTV_TSIF_FORMAT_2) /* EN_low, CLK_rising */
-	RTV_REG_SET(0xA4, 0x89);
+	RTV_REG_SET(0xA4, 0x09);
 	RTV_REG_SET(0xA5, 0x80);
 	RTV_REG_SET(0xAF, 0x10);
 
 #elif defined(RTV_TSIF_FORMAT_3) /* EN_low, CLK_falling */
-	RTV_REG_SET(0xA4, 0x89);
+	RTV_REG_SET(0xA4, 0x09);
 	RTV_REG_SET(0xA5, 0x00);
 	RTV_REG_SET(0xAF, 0x10);
 
 #elif defined(RTV_TSIF_FORMAT_4) /* EN_high, CLK_rising + 1CLK add */
-	RTV_REG_SET(0xA4, 0x89);
+	RTV_REG_SET(0xA4, 0x09);
 	RTV_REG_SET(0xA5, 0x84);
 	RTV_REG_SET(0xAF, 0x00);
 
 #elif defined(RTV_TSIF_FORMAT_5) /* EN_high, CLK_falling + 1CLK add */
-	RTV_REG_SET(0xA4, 0x89);
+	RTV_REG_SET(0xA4, 0x09);
 	RTV_REG_SET(0xA5, 0x04);
 	RTV_REG_SET(0xAF, 0x00);
 
 #elif defined(RTV_TSIF_FORMAT_6) /* Parallel: EN_high, CLK_falling */
-	RTV_REG_SET(0xA4, 0x81);
+	RTV_REG_SET(0xA4, 0x01);
 	RTV_REG_SET(0xA5, 0x00);
 	RTV_REG_SET(0xAF, 0x00);
 #else
@@ -684,7 +684,7 @@ static INLINE INT rtv_OpenFIC(enum E_TDMB_STATE eTdmbState)
 
 /*=============================================================================
 * External functions for RAONTV driver core.
-*============================================================================*/
+*============================================================================*/ 
 INT rtv_InitSystem(void);
 
 #ifdef __cplusplus

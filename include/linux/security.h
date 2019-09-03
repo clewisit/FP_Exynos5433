@@ -85,12 +85,15 @@ struct timezone;
 #define cred_align_size (*((unsigned long *)((unsigned long)__rkp_ro_start+sizeof(struct cred))))
 
 extern char __rkp_ro_start[], __rkp_ro_end[];
+extern int rkp_cred_enable;
 /*Check whether the address belong to Cred Area*/
 static inline int tima_ro_page(unsigned long addr)
 {
+	if(!rkp_cred_enable)
+		return (int)0;
 	return (addr >= ((unsigned long) __rkp_ro_start) 
-		&& addr < ((unsigned long) __rkp_ro_end)
-		&& (addr+cred_align_size <= ((unsigned long)__rkp_ro_end)));
+		&& addr < ((unsigned long) __rkp_ro_end));
+		/*&& (addr+cred_align_size <= ((unsigned long)__rkp_ro_end)));*/
 }
 extern int security_integrity_current(void);
 

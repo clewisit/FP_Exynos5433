@@ -1138,12 +1138,6 @@ conf/all/forwarding - BOOLEAN
 proxy_ndp - INTEGER
 	Do proxy ndp.
 
-	Possible values are:
-		0 Proxy NDP is disabled
-		1 Proxy NDP is enabled
-		2 NDP packets are sent to userspace, where a userspace proxy
-                  can be implemented
-
 fwmark_reflect - BOOLEAN
 	Controls the fwmark of kernel-generated IPv6 reply packets that are not
 	associated with a socket for example, TCP RSTs or ICMPv6 echo replies).

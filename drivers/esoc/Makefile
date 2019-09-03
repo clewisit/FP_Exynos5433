@@ -6,3 +6,4 @@ obj-$(CONFIG_ESOC_DEV)	+= esoc_dev.o
 obj-$(CONFIG_ESOC_CLIENT)	+= esoc_client.o
 obj-$(CONFIG_ESOC_MDM_4x)	+= esoc-mdm-4x.o
 obj-$(CONFIG_ESOC_MDM_DRV)	+= esoc-mdm-drv.o
+obj-$(CONFIG_MDM_HSIC_PM)	+= mdm_hsic_pm.o

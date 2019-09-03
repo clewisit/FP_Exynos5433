@@ -2793,7 +2793,6 @@ reset:
 			}
 		}
 
-
 		common->fsg = NULL;
 		wake_up(&common->fsg_wait);
 	}
@@ -2858,8 +2857,6 @@ static int fsg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	common->bulk_out_maxpacket =
 			le16_to_cpu(fsg->bulk_out->desc->wMaxPacketSize);
 	clear_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
-	csw_hack_sent = 0;
-	write_error_after_csw_sent = 0;
 	fsg->common->new_fsg = fsg;
 	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
 	return USB_GADGET_DELAYED_STATUS;
@@ -2878,13 +2875,12 @@ static void fsg_disable(struct usb_function *f)
 	if (fsg->bulk_in_enabled) {
 		usb_ep_disable(fsg->bulk_in);
 		fsg->bulk_in_enabled = 0;
-		fsg->bulk_in->driver_data = NULL;
 	}
 	if (fsg->bulk_out_enabled) {
 		usb_ep_disable(fsg->bulk_out);
 		fsg->bulk_out_enabled = 0;
-		fsg->bulk_out->driver_data = NULL;
 	}
+
 	fsg->common->new_fsg = NULL;
 	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
 }
@@ -3022,6 +3018,7 @@ static void handle_exception(struct fsg_common *common)
 		break;
 
 	case FSG_STATE_CONFIG_CHANGE:
+		msleep(5);
 		do_set_interface(common, common->new_fsg);
 		if (common->new_fsg)
 			usb_composite_setup_continue(common->cdev);
@@ -3196,10 +3193,8 @@ static int create_lun_device(struct fsg_common *common,
 	 * Check if index is non-zero, increment current lun_config
 	 * and cur_lun pointers.
 	 */
-	if (add_lun_index) {
-		lcfg++;
-		curlun++;
-	}
+	lcfg += add_lun_index;
+	curlun += add_lun_index;
 
 	for (i = add_lun_index; i < nluns; ++i, ++curlun, ++lcfg) {
 		curlun->cdrom = !!lcfg->cdrom;
@@ -3240,9 +3235,6 @@ static int create_lun_device(struct fsg_common *common,
 			goto error_luns;
 
 		rc = device_create_file(&curlun->dev, &dev_attr_nofua);
-		if (rc)
-			goto error_luns;
-		rc = device_create_file(&curlun->dev, &dev_attr_cdrom);
 		if (rc)
 			goto error_luns;
 

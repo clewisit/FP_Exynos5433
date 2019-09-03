@@ -24,8 +24,6 @@
 #ifndef VFS7XXX_H_
 #define VFS7XXX_H_
 
-#include <linux/fprint_secure.h>
-
 #define SLOW_BAUD_RATE      4800000
 #define MAX_BAUD_RATE       9600000
 #define BAUD_RATE_COEF      1000
@@ -36,6 +34,10 @@
 #define DEFAULT_BUFFER_SIZE (4096 * 6)
 #define DRDY_IRQ_ENABLE			1
 #define DRDY_IRQ_DISABLE		0
+
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+#define FEATURE_SPI_WAKELOCK
+#endif /* CONFIG_SEC_FACTORY */
 
 /* IOCTL commands definitions */
 
@@ -124,7 +126,15 @@
 /* To switch core */
 #define VFSSPI_IOCTL_CPU_SPEEDUP     _IOW(VFSSPI_IOCTL_MAGIC,	\
 						19, unsigned int)
+#define VFSSPI_IOCTL_SET_SENSOR_TYPE     _IOW(VFSSPI_IOCTL_MAGIC,	\
+							20, unsigned int)
+/* IOCTL #21 was already used Synaptics service. Do not use #21 */
+#define VFSSPI_IOCTL_SET_LOCKSCREEN     _IOW(VFSSPI_IOCTL_MAGIC,	\
+							22, unsigned int)
 #endif
+/* To control the power */
+#define VFSSPI_IOCTL_POWER_CONTROL     _IOW(VFSSPI_IOCTL_MAGIC,	\
+							23, unsigned int)
 /* get sensor orienation from the SPI driver*/
 #define VFSSPI_IOCTL_GET_SENSOR_ORIENT	\
 	_IOR(VFSSPI_IOCTL_MAGIC, 18, unsigned int)

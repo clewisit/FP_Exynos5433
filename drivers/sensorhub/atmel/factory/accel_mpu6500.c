@@ -20,25 +20,42 @@
 
 #define VENDOR		"INVENSENSE"
 #define CHIP_ID		"MPU6500"
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+#define VENDOR_BMI058		"BOSCH"
+#define CHIP_ID_BMI058		"BMI058"
+#endif
 
 #define CALIBRATION_FILE_PATH	"/efs/calibration_data"
 #define CALIBRATION_DATA_AMOUNT	20
 
-#define MAX_ACCEL_1G		16384
-#define MAX_ACCEL_2G		32767
-#define MIN_ACCEL_2G		-32768
-#define MAX_ACCEL_4G		65536
-
 static ssize_t accel_vendor_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	if (data->ap_rev < MPU6500_REV)
+		return sprintf(buf, "%s\n", VENDOR_BMI058);
+	else
+		return sprintf(buf, "%s\n", VENDOR);
+#else
 	return sprintf(buf, "%s\n", VENDOR);
+#endif
 }
 
 static ssize_t accel_name_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	if (data->ap_rev < MPU6500_REV)
+		return sprintf(buf, "%s\n", CHIP_ID_BMI058);
+	else
+		return sprintf(buf, "%s\n", CHIP_ID);
+#else
 	return sprintf(buf, "%s\n", CHIP_ID);
+#endif
 }
 
 int accel_open_calibration(struct ssp_data *data)
@@ -97,17 +114,15 @@ int set_accel_cal(struct ssp_data *data)
 	accel_cal[2] = data->accelcal.z;
 
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-	if (!msg)
+	if (msg == NULL) {
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
 		return -ENOMEM;
-
+	}
 	msg->cmd = MSG2SSP_AP_MCU_SET_ACCEL_CAL;
 	msg->length = 6;
 	msg->options = AP2HUB_WRITE;
 	msg->buffer = (char*) kzalloc(6, GFP_KERNEL);
-	if (!(msg->buffer)) {
-		kfree(msg);
-		return -ENOMEM;
-	}
+
 	msg->free_buffer = 1;
 	memcpy(msg->buffer, accel_cal, 6);
 
@@ -118,7 +133,7 @@ int set_accel_cal(struct ssp_data *data)
 		iRet = ERROR;
 	}
 
-	pr_info("[SSP]: set accel cal data %d, %d, %d\n", accel_cal[0], accel_cal[1], accel_cal[2]);
+	pr_info("[SSP] Set accel cal data %d, %d, %d\n", accel_cal[0], accel_cal[1], accel_cal[2]);
 	return iRet;
 }
 
@@ -164,16 +179,19 @@ static int accel_do_calibrate(struct ssp_data *data, int iEnable)
 	int iRet = 0, iCount;
 	struct file *cal_filp = NULL;
 	mm_segment_t old_fs;
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
 	int max_accel_1g = 0;
 
-	max_accel_1g = MAX_ACCEL_1G;
-
+	if (data->ap_rev < MPU6500_REV)
+		max_accel_1g = MAX_ACCEL_1G_BMI058;
+	else
+		max_accel_1g = MAX_ACCEL_1G;
+#endif
 	if (iEnable) {
 		data->accelcal.x = 0;
 		data->accelcal.y = 0;
 		data->accelcal.z = 0;
 		set_accel_cal(data);
-
 		iRet = enable_accel_for_cal(data);
 		msleep(300);
 
@@ -189,17 +207,24 @@ static int accel_do_calibrate(struct ssp_data *data, int iEnable)
 		data->accelcal.y = (iSum[1] / CALIBRATION_DATA_AMOUNT);
 		data->accelcal.z = (iSum[2] / CALIBRATION_DATA_AMOUNT);
 
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
 		if (data->accelcal.z > 0)
 			data->accelcal.z -= max_accel_1g;
 		else if (data->accelcal.z < 0)
 			data->accelcal.z += max_accel_1g;
+#else
+		if (data->accelcal.z > 0)
+			data->accelcal.z -= MAX_ACCEL_1G;
+		else if (data->accelcal.z < 0)
+			data->accelcal.z += MAX_ACCEL_1G;
+#endif
 	} else {
 		data->accelcal.x = 0;
 		data->accelcal.y = 0;
 		data->accelcal.z = 0;
 	}
 
-	ssp_dbg("[SSP]: %s - %d, %d, %d\n", __func__,
+	ssp_dbg("[SSP]: do accel calibrate %d, %d, %d\n",
 		data->accelcal.x, data->accelcal.y, data->accelcal.z);
 
 	old_fs = get_fs();
@@ -239,7 +264,7 @@ static ssize_t accel_calibration_show(struct device *dev,
 	if (iRet < 0)
 		pr_err("[SSP]: %s - calibration open failed(%d)\n", __func__, iRet);
 
-	ssp_dbg("[SSP] %s : %d %d %d - %d\n", __func__,
+	ssp_dbg("[SSP] Cal data : %d %d %d - %d\n",
 		data->accelcal.x, data->accelcal.y, data->accelcal.z, iRet);
 
 	iCount = sprintf(buf, "%d %d %d %d\n", iRet, data->accelcal.x,
@@ -297,7 +322,7 @@ static ssize_t accel_reactive_alert_store(struct device *dev,
 		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 		if (msg == NULL) {
 			pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
-			goto exit;
+			return -ENOMEM;
 		}
 		msg->cmd = ACCELEROMETER_FACTORY;
 		msg->length = 1;

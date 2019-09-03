@@ -9,12 +9,7 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  */
-#if 0
-static int call_battery_notify(struct usb_device *dev, bool bOnOff)
-{
-	return 0;
-}
-#else
+#include <linux/version.h>
 #include <linux/usb_notify.h>
 
 #define SMARTDOCK_INDEX	1
@@ -59,10 +54,10 @@ static int check_essential_device(struct usb_device *dev, int index)
 	/* check VID, PID */
 	for (id = essential_device_table; id->dev.match_flags; id++) {
 		if ((id->dev.match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
-			(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
-			id->dev.idVendor == le16_to_cpu(dev->descriptor.idVendor) &&
-			id->dev.idProduct == le16_to_cpu(dev->descriptor.idProduct) &&
-			id->index == index) {
+		(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
+		id->dev.idVendor == le16_to_cpu(dev->descriptor.idVendor) &&
+		id->dev.idProduct == le16_to_cpu(dev->descriptor.idProduct) &&
+		id->index == index) {
 			ret = 1;
 			break;
 		}
@@ -79,16 +74,14 @@ static int is_notify_hub(struct usb_device *dev)
 	hdev = dev->parent;
 	if (!hdev)
 		goto skip;
-
 	/* check VID, PID */
 	for (id = enable_notify_hub_table; id->dev.match_flags; id++) {
 		if ((id->dev.match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
-			(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
-			id->dev.idVendor == le16_to_cpu(hdev->descriptor.idVendor) &&
-			id->dev.idProduct == le16_to_cpu(hdev->descriptor.idProduct)) {
-
+		(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
+		id->dev.idVendor == le16_to_cpu(hdev->descriptor.idVendor) &&
+		id->dev.idProduct == le16_to_cpu(hdev->descriptor.idProduct)) {
 			ret = (hdev->parent &&
-				(hdev->parent == dev->bus->root_hub)) ? id->index : 0;
+			(hdev->parent == dev->bus->root_hub)) ? id->index : 0;
 			break;
 		}
 	}
@@ -100,16 +93,19 @@ static int call_battery_notify(struct usb_device *dev, bool bOnOff)
 {
 	struct usb_device *hdev;
 	struct usb_device *udev;
-	struct usb_hub *hub = usb_hub_to_struct_hub(dev->parent);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+	struct usb_hub *hub;
+#endif
 	struct otg_notify *o_notify = get_otg_notify();
 	int index = 0;
 	int count = 0;
 	int port;
 
 	if (dev->bus->root_hub != dev && bOnOff) {
-		pr_debug("%s device\n", __func__);
+		pr_info("%s device\n", __func__);
 		send_otg_notify(o_notify, NOTIFY_EVENT_DEVICE_CONNECT, 1);
 	}
+	
 	index = is_notify_hub(dev);
 	if (!index)
 		goto skip;
@@ -117,10 +113,18 @@ static int call_battery_notify(struct usb_device *dev, bool bOnOff)
 		goto skip;
 
 	hdev = dev->parent;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+	hub = usb_hub_to_struct_hub(hdev);
+	if (!hub)
+		goto skip;
+#endif
+
 	for (port = 1; port <= hdev->maxchild; port++) {
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
 		udev = hub->ports[port-1]->child;
-
+#else
+		udev = hdev->children[port-1];
+#endif
 		if (udev) {
 			if (!check_essential_device(udev, index)) {
 				if (!bOnOff && (udev == dev))
@@ -131,7 +135,7 @@ static int call_battery_notify(struct usb_device *dev, bool bOnOff)
 		}
 	}
 
-	pr_debug("%s : VID : 0x%x, PID : 0x%x, bOnOff=%d, count=%d\n", __func__,
+	pr_info("%s : VID : 0x%x, PID : 0x%x, bOnOff=%d, count=%d\n", __func__,
 		dev->descriptor.idVendor, dev->descriptor.idProduct,
 			bOnOff, count);
 	if (bOnOff) {
@@ -156,4 +160,3 @@ static int call_battery_notify(struct usb_device *dev, bool bOnOff)
 skip:
 	return 0;
 }
-#endif

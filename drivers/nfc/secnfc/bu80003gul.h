@@ -13,7 +13,6 @@
 #ifndef _BU80003GUL_H
 #define _BU80003GUL_H
 
-
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/ioctl.h>
@@ -26,7 +25,9 @@
 #define FELICA_EPC_BASEMINOR  0
 #define FELICA_EPC_MINOR 0
 #define FELICA_EPC_MINOR_COUNT 1
-#define FELICA_EPC_NAME "felica_ant" /* just to keep the notation same as of previous models */
+
+/* just to keep the notation same as of previous models */
+#define FELICA_EPC_NAME "felica_ant"
 
 static struct class *eeprom_class;
 
@@ -35,16 +36,16 @@ static int felica_epc_register(void);
 static void felica_epc_deregister(void);
 static int felica_epc_open(struct inode *inode, struct file *file);
 static int felica_epc_close(struct inode *inode, struct file *file);
-static ssize_t felica_epc_read(struct file *file, char __user *buf, \
-			size_t len, loff_t *ppos);
-static ssize_t felica_epc_write(struct file *file, const char __user *data,
-				size_t len, loff_t *ppos);
+static ssize_t felica_epc_read(struct file *file,
+		char __user *buf, size_t len, loff_t *ppos);
+static ssize_t felica_epc_write(struct file *file,
+		const char __user *data, size_t len, loff_t *ppos);
 
-/* I2C related function prototypes 			
-static int bu80003gul_i2c_init(void); */	
+/* I2C related function prototypes
+static int bu80003gul_i2c_init(void); */
 static int bu80003gul_i2c_probe(struct i2c_client *client,
 			    const struct i2c_device_id *devid);
 static int bu80003gul_i2c_remove(struct i2c_client *client);
 /* static void bu80003gul_i2c_exit(void); */
-				
-#endif /* _BU80003GUL_H */				
+
+#endif /* _BU80003GUL_H */

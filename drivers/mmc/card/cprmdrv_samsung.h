@@ -1,4 +1,4 @@
-/*  drivers/mmc/cprmdrv_samsung.h
+/*  drivers/mmc/card/cprmdrv_samsung.h
  *
  *  Copyright   2010 Samsung Electronics Co.Ltd
  *

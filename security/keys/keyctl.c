@@ -734,6 +734,10 @@ long keyctl_read_key(key_serial_t keyid, char __user *buffer, size_t buflen)
 	}
 
 	key = key_ref_to_ptr(key_ref);
+	if (test_bit(KEY_FLAG_NEGATIVE, &key->flags)) {
+		ret = -ENOKEY;
+		goto error2;
+	}
 
 	if (test_bit(KEY_FLAG_NEGATIVE, &key->flags)) {
 		ret = -ENOKEY;
@@ -766,7 +770,7 @@ can_read_key:
 		down_read(&key->sem);
 		ret = key_validate(key);
 		if (ret == 0)
-			ret = key->type->read(key, buffer, buflen);
+ 			ret = key->type->read(key, buffer, buflen);
 		up_read(&key->sem);
 	}
 

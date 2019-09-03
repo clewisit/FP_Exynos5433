@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: bcmsdh_sdmmc_linux.c 434777 2013-11-07 09:30:27Z $
+ * $Id: bcmsdh_sdmmc_linux.c 531050 2015-02-02 07:21:19Z $
  */
 
 #include <typedefs.h>
@@ -228,14 +228,18 @@ static int bcmsdh_sdmmc_suspend(struct device *pdev)
 	if (func->num != 2)
 		return 0;
 
+	dhd_mmc_suspend = TRUE;
 	sdioh = sdio_get_drvdata(func);
 	err = bcmsdh_suspend(sdioh->bcmsdh);
-	if (err)
+	if (err) {
+		dhd_mmc_suspend = FALSE;
 		return err;
+	}
 
 	sdio_flags = sdio_get_host_pm_caps(func);
 	if (!(sdio_flags & MMC_PM_KEEP_POWER)) {
 		sd_err(("%s: can't keep power while host is suspended\n", __FUNCTION__));
+		dhd_mmc_suspend = FALSE;
 		return  -EINVAL;
 	}
 
@@ -243,12 +247,12 @@ static int bcmsdh_sdmmc_suspend(struct device *pdev)
 	err = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 	if (err) {
 		sd_err(("%s: error while trying to keep power\n", __FUNCTION__));
+		dhd_mmc_suspend = FALSE;
 		return err;
 	}
 #if defined(OOB_INTR_ONLY) && !defined(CUSTOMER_HW4)
 	bcmsdh_oob_intr_set(sdioh->bcmsdh, FALSE);
 #endif /* OOB_INTR_ONLY && !CUSTOMER_HW4 */
-	dhd_mmc_suspend = TRUE;
 	smp_mb();
 
 	return 0;

@@ -397,7 +397,8 @@ static void pci_device_shutdown(struct device *dev)
 	 * If it is not a kexec reboot, firmware will hit the PCI
 	 * devices with big hammer and stop their DMA any way.
 	 */
-	if (kexec_in_progress && (pci_dev->current_state <= PCI_D3hot))
+
+	if (pci_dev->current_state <= PCI_D3hot)
 		pci_clear_master(pci_dev);
 #endif
 }
@@ -416,8 +417,11 @@ static int pci_restore_standard_config(struct pci_dev *pci_dev)
 
 	if (pci_dev->current_state != PCI_D0) {
 		int error = pci_set_power_state(pci_dev, PCI_D0);
-		if (error)
+		if (error) {
+			printk("%s: [device %04x:%04x], Failed to set D0\n",
+                        __FUNCTION__, pci_dev->vendor, pci_dev->device); 
 			return error;
+	}
 	}
 
 	pci_restore_state(pci_dev);
@@ -1156,6 +1160,7 @@ int __pci_register_driver(struct pci_driver *drv, struct module *owner,
 void
 pci_unregister_driver(struct pci_driver *drv)
 {
+	printk(KERN_EMERG "\n\n%s: Enter\n", __func__);
 	driver_unregister(&drv->driver);
 	pci_free_dynids(drv);
 }

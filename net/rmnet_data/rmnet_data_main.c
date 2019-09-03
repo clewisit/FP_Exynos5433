@@ -22,10 +22,6 @@
 #include "rmnet_data_config.h"
 #include "rmnet_data_vnd.h"
 
-/* ***************** Trace Points ******************************************* */
-#define CREATE_TRACE_POINTS
-#include "rmnet_data_trace.h"
-
 /* ***************** Module Parameters ************************************** */
 unsigned int rmnet_data_log_level = RMNET_LOG_LVL_ERR | RMNET_LOG_LVL_HI;
 module_param(rmnet_data_log_level, uint,  S_IRUGO | S_IWUSR);
@@ -44,6 +40,7 @@ MODULE_PARM_DESC(rmnet_data_log_module_mask, "Logging module mask");
  */
 static int __init rmnet_init(void)
 {
+	pr_info("[MIF] %s\n", __func__);
 	rmnet_config_init();
 	rmnet_vnd_init();
 

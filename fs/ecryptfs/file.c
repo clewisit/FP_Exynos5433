@@ -277,13 +277,13 @@ out:
 
 static int ecryptfs_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	struct file *lower_file = ecryptfs_file_to_lower(file);
+	struct dentry *dentry = ecryptfs_dentry_to_lower(file->f_path.dentry);
 	/*
 	 * Don't allow mmap on top of file systems that don't support it
 	 * natively.  If FILESYSTEM_MAX_STACK_DEPTH > 2 or ecryptfs
 	 * allows recursive mounting, this will need to be extended.
 	 */
-	if (!lower_file->f_op->mmap)
+	if (!dentry->d_inode->i_fop->mmap)
 		return -ENODEV;
 	return generic_file_mmap(file, vma);
 }
@@ -425,30 +425,50 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 #ifdef CONFIG_DLP
 	if(crypt_stat->flags & ECRYPTFS_DLP_ENABLED) {
 #if DLP_DEBUG
-		printk("DLP %s: try to open %s with crypt_stat->flags %d\n",
-				__func__, ecryptfs_dentry->d_name.name, crypt_stat->flags);
+		printk("DLP %s: try to open %s [%lu] with crypt_stat->flags %d\n",
+				__func__, ecryptfs_dentry->d_name.name, inode->i_ino, crypt_stat->flags);
 #endif
+
+		dlp_len = ecryptfs_dentry->d_inode->i_op->getxattr(
+			ecryptfs_dentry,
+			KNOX_DLP_XATTR_NAME,
+			&dlp_data, sizeof(dlp_data));
+
+		if(dlp_data.expiry_time.tv_sec <= 0){
+#if DLP_DEBUG
+			printk("[LOG] %s: DLP flag is set but it is not DLP file -> media created file but not DLP [%s]\n",
+				__func__, ecryptfs_dentry->d_name.name);
+#endif
+			goto dlp_out;
+		}
+
 		if (dlp_is_locked(mount_crypt_stat->userid)) {
 			printk("%s: DLP locked\n", __func__);
 			rc = -EPERM;
 			goto out_put;
 		}
-		if(in_egroup_p(AID_KNOX_DLP) || in_egroup_p(AID_KNOX_DLP_RESTRICTED)) {
-			dlp_len = ecryptfs_getxattr_lower(
-					ecryptfs_dentry_to_lower(ecryptfs_dentry),
-					KNOX_DLP_XATTR_NAME,
-					&dlp_data, sizeof(dlp_data));
+
+		if(in_egroup_p(AID_KNOX_DLP) || in_egroup_p(AID_KNOX_DLP_RESTRICTED) || in_egroup_p(AID_KNOX_DLP_MEDIA)) {
 			if (dlp_len == sizeof(dlp_data)) {
 				getnstimeofday(&ts);
 #if DLP_DEBUG
 				printk("DLP %s: current time [%ld/%ld] %s\n",
 						__func__, (long)ts.tv_sec, (long)dlp_data.expiry_time.tv_sec, ecryptfs_dentry->d_name.name);
 #endif
-				if ((ts.tv_sec > dlp_data.expiry_time.tv_sec) && dlp_isInterestedFile(ecryptfs_dentry->d_name.name)==0) {
+				if ((ts.tv_sec > dlp_data.expiry_time.tv_sec) &&
+						dlp_isInterestedFile(mount_crypt_stat->userid, ecryptfs_dentry->d_name.name)==0) {
+					
+					if(in_egroup_p(AID_KNOX_DLP_MEDIA)) { //ignore media notifications
+					/* Command to delete expired file  */
+					cmd = sdp_fs_command_alloc(FSOP_DLP_FILE_REMOVE_MEDIA,
+							current->tgid, mount_crypt_stat->userid, mount_crypt_stat->partition_id,
+							inode->i_ino, GFP_KERNEL);
+					} else {
 					/* Command to delete expired file  */
 					cmd = sdp_fs_command_alloc(FSOP_DLP_FILE_REMOVE,
 							current->tgid, mount_crypt_stat->userid, mount_crypt_stat->partition_id,
 							inode->i_ino, GFP_KERNEL);
+					}
 					rc = -ENOENT;
 					goto out_put;
 				}
@@ -471,13 +491,26 @@ static int ecryptfs_open(struct inode *inode, struct file *file)
 				cmd = sdp_fs_command_alloc(FSOP_DLP_FILE_OPENED,
 						current->tgid, mount_crypt_stat->userid, mount_crypt_stat->partition_id,
 						inode->i_ino, GFP_KERNEL);
+			} else if(in_egroup_p(AID_KNOX_DLP)) {
+				cmd = sdp_fs_command_alloc(FSOP_DLP_FILE_OPENED_CREATOR,
+						current->tgid, mount_crypt_stat->userid, mount_crypt_stat->partition_id,
+						inode->i_ino, GFP_KERNEL);
+			} else {
+				printk("DLP %s: DLP open file file from Media process ignoring sending event\n", __func__);
 			}
 		} else {
 			printk("DLP %s: not DLP app [%s]\n", __func__, current->comm);
+			printk("DLP %s: DLP open file failed\n", __func__);
+			cmd = sdp_fs_command_alloc(FSOP_DLP_FILE_ACCESS_DENIED,
+							current->tgid, mount_crypt_stat->userid, mount_crypt_stat->partition_id,
+							inode->i_ino, GFP_KERNEL);
+							
 			rc = -EPERM;
 			goto out_put;
 		}
 	}
+
+dlp_out:
 #endif
 
 	ecryptfs_printk(KERN_DEBUG, "inode w/ addr = [0x%p], i_ino = "
@@ -653,7 +686,8 @@ int is_file_name_match(struct ecryptfs_mount_crypt_stat *mcs,
 	for (i = 0; i < ENC_NAME_FILTER_MAX_INSTANCE; i++) {
 		int len = 0;
 		struct dentry *p = fp_dentry;
-		if (!strlen(mcs->enc_filter_name[i]))
+		if (!mcs->enc_filter_name[i] ||
+			 !strlen(mcs->enc_filter_name[i]))
 			break;
 
 		while (1) {
@@ -703,7 +737,7 @@ int is_file_ext_match(struct ecryptfs_mount_crypt_stat *mcs, char *str)
 		return 0;
 
 	for (i = 0; i < ENC_EXT_FILTER_MAX_INSTANCE; i++) {
-		if (!strlen(mcs->enc_filter_ext[i]))
+		if (!mcs->enc_filter_ext[i] || !strlen(mcs->enc_filter_ext[i]))
 			return 0;
 		if (strlen(ext) != strlen(mcs->enc_filter_ext[i]))
 			continue;

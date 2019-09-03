@@ -1,7 +1,7 @@
 /*
- * include/linux/knox_rp.h
+ * include/linux/knox_kap.h
  *
- * Include file for the KNOX RP mode.
+ * Include file for the KNOX KAP mode.
  */
 
 #ifndef _LINUX_KNOX_KAP_H

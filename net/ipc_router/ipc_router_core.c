@@ -32,17 +32,21 @@
 #include <linux/uaccess.h>
 #include <linux/ipc_router.h>
 #include <linux/ipc_router_xprt.h>
-#include <soc/qcom/subsystem_notif.h>
+#include <mach/subsystem_notif.h>
 
 #include <asm/byteorder.h>
 
+#if defined(CONFIG_ARCH_MSM)
 #include <soc/qcom/smem_log.h>
+#endif
 
 #include "ipc_router_private.h"
 #include "ipc_router_security.h"
 
 enum {
+#if defined(CONFIG_ARCH_MSM)
 	SMEM_LOG = 1U << 0,
+#endif
 	RTR_DBG = 1U << 1,
 	R2R_MSG = 1U << 2,
 	R2R_RAW = 1U << 3,
@@ -128,7 +132,7 @@ struct msm_ipc_server {
 
 struct msm_ipc_server_port {
 	struct list_head list;
-	struct platform_device *pdev;
+	struct platform_device pdev;
 	struct msm_ipc_port_addr server_addr;
 	struct msm_ipc_router_xprt_info *xprt_info;
 };
@@ -1239,6 +1243,10 @@ static struct msm_ipc_server *msm_ipc_router_lookup_server(
 	return NULL;
 }
 
+static void dummy_release(struct device *dev)
+{
+}
+
 /**
  * msm_ipc_router_create_server() - Add server info to hash table
  * @service: Service ID of the server info to be created.
@@ -1263,7 +1271,6 @@ static struct msm_ipc_server *msm_ipc_router_create_server(
 {
 	struct msm_ipc_server *server = NULL;
 	struct msm_ipc_server_port *server_port;
-	struct platform_device *pdev;
 	int key = (service & (SRV_HASH_SIZE - 1));
 
 	list_for_each_entry(server, &server_list[key], list) {
@@ -1288,11 +1295,7 @@ static struct msm_ipc_server *msm_ipc_router_create_server(
 
 create_srv_port:
 	server_port = kzalloc(sizeof(struct msm_ipc_server_port), GFP_KERNEL);
-	pdev = platform_device_alloc(server->pdev_name, server->next_pdev_id);
-	if (!server_port || !pdev) {
-		kfree(server_port);
-		if (pdev)
-			platform_device_put(pdev);
+	if (!server_port) {
 		if (list_empty(&server->server_port_list)) {
 			list_del(&server->list);
 			kfree(server);
@@ -1300,13 +1303,15 @@ create_srv_port:
 		IPC_RTR_ERR("%s: Server Port allocation failed\n", __func__);
 		return NULL;
 	}
-	server_port->pdev = pdev;
 	server_port->server_addr.node_id = node_id;
 	server_port->server_addr.port_id = port_id;
 	server_port->xprt_info = xprt_info;
 	list_add_tail(&server_port->list, &server->server_port_list);
-	server->next_pdev_id++;
-	platform_device_add(server_port->pdev);
+
+	server_port->pdev.name = server->pdev_name;
+	server_port->pdev.id = server->next_pdev_id++;
+	server_port->pdev.dev.release = dummy_release;
+	platform_device_register(&server_port->pdev);
 
 	return server;
 }
@@ -1337,7 +1342,7 @@ static void msm_ipc_router_destroy_server(struct msm_ipc_server *server,
 			break;
 	}
 	if (server_port) {
-		platform_device_unregister(server_port->pdev);
+		platform_device_unregister(&server_port->pdev);
 		list_del(&server_port->list);
 		kfree(server_port);
 	}
@@ -2209,6 +2214,7 @@ static void do_read_data(struct work_struct *work)
 			continue;
 		}
 
+#if defined(CONFIG_ARCH_MSM)
 		if (msm_ipc_router_debug_mask & SMEM_LOG) {
 			smem_log_event((SMEM_LOG_PROC_ID_APPS |
 				SMEM_LOG_IPC_ROUTER_EVENT_BASE |
@@ -2220,6 +2226,7 @@ static void do_read_data(struct work_struct *work)
 				(hdr->type << 24) | (hdr->control_flag << 16) |
 				(hdr->size & 0xffff));
 		}
+#endif
 
 		down_read(&local_ports_lock_lha2);
 		port_ptr = msm_ipc_router_lookup_local_port(hdr->dst_port_id);
@@ -2266,9 +2273,6 @@ int msm_ipc_router_register_server(struct msm_ipc_port *port_ptr,
 	union rr_control_msg ctl;
 
 	if (!port_ptr || !name)
-		return -EINVAL;
-
-	if (port_ptr->type != CLIENT_PORT)
 		return -EINVAL;
 
 	if (name->addrtype != MSM_IPC_ADDR_NAME)
@@ -2517,6 +2521,7 @@ static int msm_ipc_router_write_pkt(struct msm_ipc_port *src,
 		hdr->control_flag, hdr->size,
 		hdr->dst_node_id, hdr->dst_port_id);
 
+#if defined(CONFIG_ARCH_MSM)
 	if (msm_ipc_router_debug_mask & SMEM_LOG) {
 		smem_log_event((SMEM_LOG_PROC_ID_APPS |
 			SMEM_LOG_IPC_ROUTER_EVENT_BASE |
@@ -2528,6 +2533,7 @@ static int msm_ipc_router_write_pkt(struct msm_ipc_port *src,
 			(hdr->type << 24) | (hdr->control_flag << 16) |
 			(hdr->size & 0xffff));
 	}
+#endif
 
 	return hdr->size;
 }
@@ -3447,7 +3453,9 @@ static int __init msm_ipc_router_init(void)
 	int i, ret;
 	struct msm_ipc_routing_table_entry *rt_entry;
 
+#if defined(CONFIG_ARCH_MSM)
 	msm_ipc_router_debug_mask |= SMEM_LOG;
+#endif
 	ipc_rtr_log_ctxt = ipc_log_context_create(IPC_RTR_LOG_PAGES,
 						  "ipc_router");
 	if (!ipc_rtr_log_ctxt)

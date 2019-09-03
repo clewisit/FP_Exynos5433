@@ -21,13 +21,15 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: osl.h 505854 2014-10-01 11:03:36Z $
+ * $Id: osl.h 424562 2013-09-18 10:57:30Z $
  */
 
 #ifndef _osl_h_
 #define _osl_h_
 
-#include <osl_decl.h>
+/* osl handle type forward declaration */
+typedef struct osl_info osl_t;
+typedef struct osl_dmainfo osldma_t;
 
 #define OSL_PKTTAG_SZ	32 /* Size of PktTag */
 
@@ -37,7 +39,6 @@ typedef void (*pktfree_cb_fn_t)(void *ctx, void *pkt, unsigned int status);
 /* Drivers use REGOPSSET() to register register read/write funcitons */
 typedef unsigned int (*osl_rreg_fn_t)(void *ctx, volatile void *reg, unsigned int size);
 typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, unsigned int size);
-
 
 
 #include <linux_osl.h>
@@ -69,7 +70,7 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 #define OSL_SYSUPTIME_SUPPORT TRUE
 #endif /* OSL_SYSUPTIME */
 
-#if !defined(PKTC_DONGLE)
+#if !defined(PKTC) && !defined(PKTC_DONGLE)
 #define	PKTCGETATTR(skb)	(0)
 #define	PKTCSETATTR(skb, f, p, b) BCM_REFERENCE(skb)
 #define	PKTCCLRATTR(skb)	BCM_REFERENCE(skb)
@@ -91,18 +92,19 @@ typedef void  (*osl_wreg_fn_t)(void *ctx, volatile void *reg, unsigned int val, 
 #define FOREACH_CHAINED_PKT(skb, nskb) \
 	for ((nskb) = NULL; (skb) != NULL; (skb) = (nskb))
 #define	PKTCFREE		PKTFREE
-
 #define PKTCENQTAIL(h, t, p) \
 do { \
 	if ((t) == NULL) { \
 		(h) = (t) = (p); \
 	} \
 } while (0)
-#endif 
+#endif /* !linux || !PKTC */
 
+#if !defined(HNDCTF) && !defined(PKTC_TX_DONGLE)
 #define PKTSETCHAINED(osh, skb)		BCM_REFERENCE(osh)
 #define PKTCLRCHAINED(osh, skb)		BCM_REFERENCE(osh)
 #define PKTISCHAINED(skb)		FALSE
+#endif
 
 /* Lbuf with fraglist */
 #define PKTFRAGPKTID(osh, lb)		(0)
@@ -111,9 +113,8 @@ do { \
 #define PKTSETFRAGTOTNUM(osh, lb, tot)	BCM_REFERENCE(osh)
 #define PKTFRAGTOTLEN(osh, lb)		(0)
 #define PKTSETFRAGTOTLEN(osh, lb, len)	BCM_REFERENCE(osh)
-#define PKTIFINDEX(osh, lb)		(0)
-#define PKTSETIFINDEX(osh, lb, idx)	BCM_REFERENCE(osh)
-#define	PKTGETLF(osh, len, send, lbuf_type)	(0)
+#define PKTFRAGIFINDEX(osh, lb)		(0)
+#define PKTSETFRAGIFINDEX(osh, lb, idx)	BCM_REFERENCE(osh)
 
 /* in rx path, reuse totlen as used len */
 #define PKTFRAGUSEDLEN(osh, lb)			(0)
@@ -132,17 +133,10 @@ do { \
 #define PKTRESETRXFRAG(osh, lb)		BCM_REFERENCE(osh)
 
 /* TX FRAG */
-#define PKTISTXFRAG(osh, lb)		(0)
+#define PKTISTXFRAG(osh, lb)       	(0)
 #define PKTSETTXFRAG(osh, lb)		BCM_REFERENCE(osh)
-
-/* Need Rx completion used for AMPDU reordering */
-#define PKTNEEDRXCPL(osh, lb)           (TRUE)
-#define PKTSETNORXCPL(osh, lb)          BCM_REFERENCE(osh)
-#define PKTRESETNORXCPL(osh, lb)        BCM_REFERENCE(osh)
 
 #define PKTISFRAG(osh, lb)		(0)
 #define PKTFRAGISCHAINED(osh, i)	(0)
-/* TRIM Tail bytes from lfrag */
-#define PKTFRAG_TRIM_TAILBYTES(osh, p, len)	PKTSETLEN(osh, p, PKTLEN(osh, p) - len)
 
 #endif	/* _osl_h_ */

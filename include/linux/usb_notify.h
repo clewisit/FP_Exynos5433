@@ -26,9 +26,9 @@ enum otg_notify_events {
 	NOTIFY_EVENT_MMDOCK,
 	NOTIFY_EVENT_HMT,
 	NOTIFY_EVENT_DRIVE_VBUS,
-	NOTIFY_EVENT_ALLDISABLE_NOTIFY,
-	NOTIFY_EVENT_HOSTDISABLE_NOTIFY,
-	NOTIFY_EVENT_CLIENTDISABLE_NOTIFY,
+	NOTIFY_EVENT_ALL_DISABLE,
+	NOTIFY_EVENT_HOST_DISABLE,
+	NOTIFY_EVENT_CLIENT_DISABLE,
 	NOTIFY_EVENT_OVERCURRENT,
 	NOTIFY_EVENT_SMSC_OVC,
 	NOTIFY_EVENT_SMTD_EXT_CURRENT,
@@ -91,7 +91,7 @@ struct otg_notify {
 	int auto_drive_vbus;
 	int booting_delay_sec;
 	int disable_control;
-	int device_check_sec;;
+	int device_check_sec;
 	const char *muic_name;
 	int (*pre_gpio)(int gpio, int use);
 	int (*post_gpio)(int gpio, int use);

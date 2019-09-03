@@ -179,7 +179,7 @@ static int process_one_ticket(struct ceph_auth_client *ac,
 	}
 	dout(" decrypted %d bytes\n", dlen);
 	dp = dbuf;
-	dent = dp + dlen;
+	dend = dp + dlen;
 
 	tkt_struct_v = ceph_decode_8(&dp);
 	if (tkt_struct_v != 1)
@@ -192,10 +192,10 @@ static int process_one_ticket(struct ceph_auth_client *ac,
 
 	ceph_decode_copy(&dp, &new_validity, sizeof(new_validity));
 	ceph_decode_timespec(&validity, &new_validity);
-	new_expires = get_secondes() + validity.tv_sec;
+	new_expires = get_seconds() + validity.tv_sec;
 	new_renew_after = new_expires - (validity.tv_sec / 4);
 	dout(" expires=%lu renew_after=%lu\n", new_expires,
-		new_renew_after);
+	     new_renew_after);
 
 	/* ticket blob for service */
 	ceph_decode_8_safe(p, end, is_enc, bad);
@@ -236,14 +236,15 @@ static int process_one_ticket(struct ceph_auth_client *ac,
 		ceph_buffer_put(th->ticket_blob);
 	th->session_key = new_session_key;
 	th->ticket_blob = new_ticket_blob;
-	th->vlidity = new_validity;
+	th->validity = new_validity;
 	th->secret_id = new_secret_id;
 	th->expires = new_expires;
 	th->renew_after = new_renew_after;
-	dout(" got ticket service %d (%s) secret_id &lld len %d\n",
-		type, ceph_entity_type_name(type), th->secret_id,
-		(int)th->ticket_blob->vec.iov_len);
+	dout(" got ticket service %d (%s) secret_id %lld len %d\n",
+	     type, ceph_entity_type_name(type), th->secret_id,
+	     (int)th->ticket_blob->vec.iov_len);
 	xi->have_keys |= th->service;
+
 out:
 	kfree(ticket_buf);
 	kfree(dbuf);

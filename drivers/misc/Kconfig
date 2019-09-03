@@ -332,6 +332,12 @@ config ISL29003
 	  This driver can also be built as a module.  If so, the module
 	  will be called isl29003.
 
+config KNOX_KAP
+       bool "Enable KNOX KAP mode"
+       default n
+       help 
+              Knox Active Protection mode
+
 config ISL29020
 	tristate "Intersil ISL29020 ambient light sensor"
 	depends on I2C
@@ -522,15 +528,6 @@ config PCH_PHUB
 	  To compile this driver as a module, choose M here: the module will
 	  be called pch_phub.
 
-config USB_SWITCH_FSA9480
-	tristate "FSA9480 USB Switch"
-	depends on I2C
-	help
-	  The FSA9480 is a USB port accessory detector and switch.
-	  The FSA9480 is fully controlled using I2C and enables USB data,
-	  stereo and mono audio, video, microphone and UART data to use
-	  a common connector port.
-
 config LATTICE_ECP3_CONFIG
 	tristate "Lattice ECP3 FPGA bitstream configuration via SPI"
 	depends on SPI && SYSFS
@@ -542,6 +539,12 @@ config LATTICE_ECP3_CONFIG
 
 	  If unsure, say N.
 
+config UID_CPUTIME
+	tristate "Per-UID cpu time statistics"
+	depends on PROFILING
+	help
+	  Per UID based cpu time statistics exported to /proc/uid_cputime
+
 config SRAM
 	bool "Generic on-chip SRAM driver"
 	depends on HAS_IOMEM
@@ -551,219 +554,59 @@ config SRAM
 	  the genalloc API. It is supposed to be used for small on-chip SRAM
 	  areas found on many SoCs.
 
-config TSIF
-	depends on ARCH_MSM8X60 || ARCH_MSM8960 || ARCH_APQ8064
-	tristate "TSIF (Transport Stream InterFace) support"
-	default n
-	---help---
-	  This driver supports low level TSIF interface. It provides API
-	  for upper layer drivers. If you have a TSIF hardware, say
-	  Y here and read <file:Documentation/arm/msm/tsif.txt>.
-
-	  To compile this driver as module, choose M here: the
-	  module will be called msm_tsif.
-
-config TSIF_DEBUG
-	bool "Turn on debugging information for tsif driver"
-	depends on TSIF
-	default n
-	---help---
-	  This turns on debugging information for the tsif driver
-
-config HAPTIC_ISA1200
-	tristate "ISA1200 haptic support"
-	depends on I2C
-	default n
-	help
-	  The ISA1200 is a high performance enhanced haptic driver.
-
-config QSEECOM
-	tristate "Qualcomm Secure Execution Communicator driver"
-	help
-	  Provides a communication interface between userspace and
-	  Qualcomm Secure Execution Environment (QSEE) using Secure Channel
-	  Manager (SCM) interface.
-
-config QFP_FUSE
-	tristate "QFPROM Fuse Read/Write support"
-	help
-	  This option enables device driver to read/write QFPROM
-	  fuses. The ioctls provides the necessary interface
-	  to the fuse block. Currently this is supported only
-	  on FSM targets.
-
-config QPNP_MISC
-	tristate "QPNP Misc Peripheral"
-	depends on SPMI
-	help
-	  Say 'y' here to include support for the Qualcomm QPNP MISC
-	  peripheral. The MISC peripheral holds the USB ID interrupt
-	  and the driver provides an API to check if this interrupt
-	  is available on the current PMIC chip.
-
-config SEC_MISC
-	bool "Samsung P series miscellaneous driver"
-	default n
-	---help---
-	  Samsung P series miscellaneous driver
-	  This creates sys fs entries for changing
-	  debug levels. The debug level is stored in
-	  Param partition
-
-config SAMSUNG_JACK
-	bool "3.5 PI Jack driver for Samsung devices"
+config SEC_DEV_JACK
+	bool "Earjack detection driver for Samsung devices"
 	depends on INPUT
 	default n
-	help
-	 This is 3.5 PI JACK driver for Samsung devies.
-	 sec_jack from samsung driver used for samsung devices.
+	select SWITCH
+	---help---
+	 This is Earjack detection driver for Samsung devices.
 
-	 To samsung jack is reviewed and supported in all the
-	 samsung devices.
+config EARJACK_ADC_SYSFS
+	bool "EarJack & BTN adc sysfs"
+	depends on SEC_DEV_JACK
+	default n
+	---help---
+	This is sysfs for sec_jack driver jack type and btn type adc values.
 
-config USB_HSIC_SMSC_HUB
-	tristate "Support for HSIC based MSM on-chip SMSC3503 HUB"
-	depends on USB_EHCI_MSM_HSIC
-	help
-	  Enables support for the HSIC (High Speed Inter-Chip) based
-	  SMSC3503 hub controller present on the Qualcomm chipsets.
+config SEC_USE_EXT_CODEC_BIAS
+	bool "use micbias from external codec"
+	depends on SEC_DEV_JACK
+	default n
 
-	  This adds support for connecting devices like mouse in HSIC
-	  Host mode.
+config RF_EAR_DET
+	bool "Earjack detection for RF performance"
+	default n
+	---help---
+	 This is Earjack detection for RF performance.
 
-config TI_DRV2667
-	tristate "TI's DRV2667 haptic controller support"
-	depends on I2C
-	help
-	  The DRV2667 is a piezo haptic controller chip. It can drive
-	  piezo haptics either in digital mode or analog mode. This chip
-	  can be used in variety of devices to provide haptic support.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called ti_drv2667.
-
-config APQ8084_DOCKING_STATION
-	tristate "QTI APQ8084 Docking Station USB/Ethernet support"
-	depends on OF_GPIO
-	help
-	  This option enables support for the USB and Ethernet ports found on
-	  the QTI APQ8084 Docking Station.
-
-config UID_SYS_STATS
-	tristate "Per-UID statistics"
-	depends on PROFILING
-	help
-	  Per UID based cpu time statistics exported to /proc/uid_cputime
-	  Per UID based io statistics exported to /proc/uid_io
-
-config NFC_PN547
-	bool "NXP PN547 NFC Controller Driver"
-	depends on I2C
+config SEC_DEV_JACK_ANT
+	bool "Extenal antenna for ISDB-T"
 	default n
 	help
-	  NXP PN547 Near Field Communication controller support.
-	  This option enables device driver support for the NFC.
-	  It is used by many services. NFC is fully controlled using I2C
-	  to communicate the AP chip.
+	  This option use check for external antenna state
 
-config NFC_PN547_PMC8974_CLK_REQ
-	bool "NXP PN547 NFC Controller Driver"
-	depends on I2C
-	default n
+
+config TIMA_LOG
+	tristate "Support for dumping TIMA log"
+	depends on TIMA
+	default y
 	help
-	  PM8941 Clock request for NXP PN547 Near Field
-	  Communication controller support.
-	  This option enables d1 clock for NFC.
+	  This option enables support for dumping TIMA log.
 
-config NFC_PN547_8226_USE_BBCLK2
-	bool "NXP PN547 NFC CLOCK Controller"
-	depends on NFC_PN547
-	default n
+config LED_COVER
+	tristate "led cover power supply"
 	help
-	  NXP PN547 Near Field Communication controller support.
-	  This option enables device driver support for the NFC.
-	  It is used by many services. NFC is fully controlled using I2C
-	  to communicate the AP chip.
+	  This driver provides support for led cover power supply,
+	  providing cover power enable/disable sysfs.
 
-config NFC_PN547_8084_USE_BBCLK2
-	bool "NXP PN547 NFC CLOCK Controller"
-	depends on NFC_PN547
+config JACK_ADC_MORE_CTIME
+	bool "JACK ADC conversion time add"
+	depends on INPUT
 	default n
-	help
-	  NXP PN547 Near Field Communication controller support.
-	  This option enables device driver support for the NFC.
-	  It is used by many services. NFC is fully controlled using I2C
-	  to communicate the AP chip.
 
-config SEC_NFC_I2C
-	tristate "SEC NFC driver for I2C interface"
-	depends on I2C
-	default n
-	help
-	  Say yes if you want System LSI Near Field Communication driver.
-	  This is for spi connected version. If unsure, say N here.
-	  To compile this driver as a module, choose m here. The module will
-	  be called sec-nfc-i2c.
-
-config SEC_NFC
-	bool "Samsung NFC driver"
-	default n
-	help
-	  SAMSUNG NFC Driver.
-	  This driver provides support for SAMSUNG NFC products.
-	  You should select your NFC product and interface.
-
-	  Say Y here to compile support for SAMSUNG NFC driver into the
-	  kernel.
-
-config NFC_N5_8084_USE_BBCLK2
-	bool "SEC N5 NFC CLOCK Controller"
-	depends on SEC_NFC
-	default n
-	help
-	  SEC N5 Near Field Communication controller support.
-	  This option enables device driver support for the NFC.
-	  It is used by many services. NFC is fully controlled using I2C
-	  to communicate the AP chip.
-
-config NFC_DUAL
-	bool "NFC DUAL"
-	depends on SEC_NFC
-	default n
-	help
-	  DUAL Near Field Communication controller support.
-	  This option enables device driver support for the NFC.
-	  It is used by many services. NFC is fully controlled using I2C
-	  to communicate the AP chip.
-
-choice
-	prompt "SEC NFC Products"
-	depends on SEC_NFC
-	default SEC_NFC_PRODUCT_N5
-config SEC_NFC_PRODUCT_N3
-	bool "N3"
-config SEC_NFC_PRODUCT_N5
-	bool "N5"
-endchoice
-
-config SEC_NFC_MARGINTIME
-	bool "SEC NFC MARGINTIME"
-	depends on SEC_NFC
-	default n
-	help
-	  SAMSUNG SEC NFC MARGINTIME feature.
-	  This feature provides support for SAMSUNG NFC products.
-	  You should select this feature if your NFC product uses AVDD Cap 10uF .
-
-	  Say Y here to compile support for SAMSUNG SEC NFC MARGINTIME feature into the
-	  kernel.
-
-config NFC_I2C_OVERWRITE
-	bool "I2C gpio overwrite"
-	depends on I2C
-	default n
-	help
-	  F-project rev09,10 has no external PU register.
+config CHECK_SIMSLOT_COUNT
+	bool "Dual/Single sim support"
 
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
@@ -775,5 +618,8 @@ source "drivers/misc/altera-stapl/Kconfig"
 source "drivers/misc/modem_if/Kconfig"
 source "drivers/misc/mei/Kconfig"
 source "drivers/misc/vmw_vmci/Kconfig"
-source "drivers/misc/qcom/Kconfig"
+source "drivers/misc/mipi-lli/Kconfig"
+source "drivers/misc/modem_v1/Kconfig"
+source "drivers/misc/modem_v2/Kconfig"
+source "drivers/misc/mdm_if/Kconfig"
 endmenu

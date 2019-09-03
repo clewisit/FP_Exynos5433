@@ -9,4 +9,4 @@ config DS28EL35_ECDSA
 	help
 	 If you enable this, you will have ECDSA algorithm API for DS28EL35.
 
-endmenu	 
+endmenu

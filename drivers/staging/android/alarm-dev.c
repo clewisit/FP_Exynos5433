@@ -47,6 +47,7 @@ static int alarm_opened;
 static DEFINE_SPINLOCK(alarm_slock);
 static DEFINE_MUTEX(alarm_mutex);
 static struct wakeup_source alarm_wake_lock;
+static struct wakeup_source temp_wake_lock;
 static DECLARE_WAIT_QUEUE_HEAD(alarm_wait_queue);
 static uint32_t alarm_pending;
 static uint32_t alarm_enabled;
@@ -106,8 +107,10 @@ static void alarm_clear(enum android_alarm_type alarm_type, struct timespec *ts)
 	devalarm_try_to_cancel(&alarms[alarm_type]);
 	if (alarm_pending) {
 		alarm_pending &= ~alarm_type_mask;
-		if (!alarm_pending && !wait_pending)
+		if (!alarm_pending && !wait_pending) {
 			__pm_relax(&alarm_wake_lock);
+			__pm_relax(&temp_wake_lock);
+		}
 	}
 	alarm_enabled &= ~alarm_type_mask;
 	spin_unlock_irqrestore(&alarm_slock, flags);
@@ -472,6 +475,7 @@ static int alarm_release(struct inode *inode, struct file *file)
 				alarm_dbg(INFO, "%s: clear pending alarms %x\n",
 					  __func__, alarm_pending);
 			__pm_relax(&alarm_wake_lock);
+			__pm_relax(&temp_wake_lock);
 			wait_pending = 0;
 			alarm_pending = 0;
 		}
@@ -490,6 +494,7 @@ static void devalarm_triggered(struct devalarm *alarm)
 	spin_lock_irqsave(&alarm_slock, flags);
 	if (alarm_enabled & alarm_type_mask) {
 		__pm_wakeup_event(&alarm_wake_lock, 5000); /* 5secs */
+		__pm_wakeup_event(&temp_wake_lock, 1000); /* 1secs */
 		alarm_enabled &= ~alarm_type_mask;
 		alarm_pending |= alarm_type_mask;
 		wake_up(&alarm_wait_queue);
@@ -561,6 +566,7 @@ static int __init alarm_dev_init(void)
 	}
 
 	wakeup_source_init(&alarm_wake_lock, "alarm");
+	wakeup_source_init(&temp_wake_lock, "alarm_temp");
 	return 0;
 }
 
@@ -568,6 +574,7 @@ static void  __exit alarm_dev_exit(void)
 {
 	misc_deregister(&alarm_device);
 	wakeup_source_trash(&alarm_wake_lock);
+	wakeup_source_trash(&temp_wake_lock);
 }
 
 module_init(alarm_dev_init);

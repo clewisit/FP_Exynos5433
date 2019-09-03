@@ -367,6 +367,7 @@ static int __init esoc_init(void)
 {
 	int ret;
 
+	pr_info("[MIF] %s\n", __func__);
 	ret = device_register(&esoc_bus);
 	if (ret) {
 		pr_err("esoc bus device register fail\n");

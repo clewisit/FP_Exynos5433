@@ -207,10 +207,10 @@ static long esoc_dev_ioctl(struct file *file, unsigned int cmd,
 	case ESOC_WAIT_FOR_REQ:
 		if (esoc_clink->req_eng != &uhandle->eng)
 			return -EACCES;
-		pr_debug("esoc REQ enginer waiting on request\n");
+		pr_err("esoc REQ enginer waiting on request\n");
 		err = wait_event_interruptible(esoc_udev->req_wait,
 					!kfifo_is_empty(&esoc_udev->req_fifo));
-		pr_debug("esoc REQ engine released from wait\n");
+		pr_err("esoc REQ engine released from wait\n");
 		if (!err) {
 			pr_err("esoc REQ engine reading from req fifo\n");
 			err = kfifo_out_spinlocked(&esoc_udev->req_fifo, &req,
@@ -236,6 +236,9 @@ static long esoc_dev_ioctl(struct file *file, unsigned int cmd,
 		if (err)
 			return err;
 		put_user(status, (unsigned long __user *)uarg);
+		break;
+	case ESOC_SET_HSIC_READY:
+		clink_ops->set_hsic_ready(esoc_clink);
 		break;
 	case ESOC_WAIT_FOR_CRASH:
 		err = wait_event_interruptible(esoc_udev->evt_wait,
@@ -380,6 +383,7 @@ static struct notifier_block esoc_dev_notifier = {
 int __init esoc_dev_init(void)
 {
 	int ret = 0;
+	pr_info("[MIF] %s\n", __func__);
 	esoc_class = class_create(THIS_MODULE, "esoc-dev");
 	if (IS_ERR(esoc_class)) {
 		pr_err("coudn't create class");

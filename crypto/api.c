@@ -384,7 +384,7 @@ struct crypto_tfm *__crypto_alloc_tfm(struct crypto_alg *alg, u32 type,
 		goto out_err;
 
 #if FIPS_FUNC_TEST == 4
-    g_tfm_sz = tfm_size;
+	g_tfm_sz = tfm_size;
 #endif
 	tfm->__crt_alg = alg;
 

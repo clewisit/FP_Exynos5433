@@ -57,7 +57,6 @@
 #include <linux/fs.h>
 #include <asm/uaccess.h>
 
-
 /* platform specific pre-processing */
 #define CONN_GADGET_SHORTNAME "android_ssusbcon"
 
@@ -88,6 +87,7 @@ struct conn_gadget_dev {
 	int online;
 	int error;
 
+
 	atomic_t read_excl;
 	atomic_t write_excl;
 	atomic_t open_excl;
@@ -100,7 +100,6 @@ struct conn_gadget_dev {
 	wait_queue_head_t write_wq;
 
 	struct kfifo rd_queue;
-
 	void* rd_queue_buf;
 
 	int transfer_size;
@@ -287,7 +286,7 @@ static int conn_gadget_request_ep_out(struct conn_gadget_dev *dev)
 	struct usb_request *req;
 	int ret;
 
-	while ((req = conn_gadget_req_get(dev, &dev->rx_idle))) {
+		while ((req = conn_gadget_req_get(dev, &dev->rx_idle))) {
 		req->length = dev->transfer_size;
 		ret = usb_ep_queue(dev->ep_out, req, GFP_ATOMIC);
 		if (ret < 0) {
@@ -330,6 +329,8 @@ int conn_gadget_empty(struct conn_gadget_dev *dev, struct list_head *head)
 
 	return empty;
 }
+
+
 
 
 static void conn_gadget_complete_in(struct usb_ep *ep, struct usb_request *req)
@@ -482,8 +483,8 @@ static unsigned int conn_gadget_poll(struct file* fp, poll_table *wait)
 	if (!conn_gadget_empty(dev, &dev->tx_idle))
 		mask |= (POLLOUT | POLLWRNORM);
 
-		CONN_GADGET_DBG("exit\n");
-		return mask;
+	CONN_GADGET_DBG("exit\n");
+	return mask;
 }
 
 static ssize_t conn_gadget_read(struct file *fp, char __user *buf,
@@ -521,7 +522,6 @@ static ssize_t conn_gadget_read(struct file *fp, char __user *buf,
 			return ret;
 		}
 	}
-
 	if (dev->error) {
 		r = -EIO;
 		CONN_GADGET_ERR("dev->error has value\n");
@@ -586,6 +586,7 @@ static ssize_t conn_gadget_write(struct file *fp, const char __user *buf,
 		return -EBUSY;
 	}
 
+
 	while (count > 0) {
 		CONN_GADGET_DBG("in the loop (user count %d)\n", (int)count);
 
@@ -645,6 +646,7 @@ static ssize_t conn_gadget_write(struct file *fp, const char __user *buf,
 	conn_gadget_unlock(&dev->write_excl);
 	CONN_GADGET_DBG("conn_gadget_write returning %d\n", r);
 
+
 	return r;
 }
 
@@ -688,7 +690,6 @@ static int conn_gadget_open(struct inode *ip, struct file *fp)
 	return 0;
 }
 
-
 static int conn_gadget_flush(struct file *fp, fl_owner_t id)
 {
 	struct conn_gadget_dev	*dev = _conn_gadget_dev;
@@ -706,7 +707,6 @@ static int conn_gadget_flush(struct file *fp, fl_owner_t id)
 
 	return 0;
 }
-
 
 static int conn_gadget_release(struct inode *ip, struct file *fp)
 {
@@ -731,7 +731,6 @@ static int conn_gadget_release(struct inode *ip, struct file *fp)
 	conn_gadget_unlock(&_conn_gadget_dev->open_excl);
 	return 0;
 }
-
 
 static int conn_gadget_bind_status_copy_to_user(unsigned long value, int online)
 {
@@ -885,7 +884,7 @@ conn_gadget_function_bind(struct usb_configuration *c, struct usb_function *f)
 			conn_gadget_fullspeed_out_desc.bEndpointAddress;
 	}
 
-    /* support super speed hardware */
+	/* support super speed hardware */
 	if (gadget_is_superspeed(c->cdev->gadget)) {
 		conn_gadget_superspeed_in_desc.bEndpointAddress =
 			conn_gadget_fullspeed_in_desc.bEndpointAddress;
@@ -970,7 +969,6 @@ static int conn_gadget_function_set_alt(struct usb_function *f,
 			ep_choose(cdev->gadget,
 				&conn_gadget_highspeed_out_desc,
 				&conn_gadget_fullspeed_out_desc));
-
 	if (ret) {
 		usb_ep_disable(dev->ep_in);
 		return ret;
@@ -1032,7 +1030,7 @@ static int conn_gadget_bind_config(struct usb_configuration *c)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
 	dev->function.fs_descriptors = fs_conn_gadget_descs;
 #else
-	dev->function.fs_descriptors = fs_conn_gadget_descs;
+	dev->function.descriptors = fs_conn_gadget_descs;
 #endif
 
 	dev->function.hs_descriptors = hs_conn_gadget_descs;
@@ -1094,7 +1092,7 @@ static int conn_gadget_setup(void)
 	return 0;
 
 err:
- if (dev->rd_queue_buf) vfree(dev->rd_queue_buf);
+    if (dev->rd_queue_buf) vfree(dev->rd_queue_buf);
 
 	_conn_gadget_dev = NULL;
 	kfree(dev);
@@ -1209,7 +1207,7 @@ static void conn_gadget_cleanup(void)
 
 	misc_deregister(&conn_gadget_device);
 
-if (_conn_gadget_dev->rd_queue_buf)
+    if (_conn_gadget_dev->rd_queue_buf)
         vfree(_conn_gadget_dev->rd_queue_buf);
 
 	kfree(_conn_gadget_dev);

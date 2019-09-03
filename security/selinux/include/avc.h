@@ -148,6 +148,9 @@ int avc_has_perm_noaudit(u32 ssid, u32 tsid,
 			 unsigned flags,
 			 struct av_decision *avd);
 
+int avc_has_extended_perms(u32 ssid, u32 tsid, u16 tclass, u32 requested,
+		u8 driver, u8 perm, struct common_audit_data *ad);
+
 int avc_has_perm_flags(u32 ssid, u32 tsid,
 		       u16 tclass, u32 requested,
 		       struct common_audit_data *auditdata,

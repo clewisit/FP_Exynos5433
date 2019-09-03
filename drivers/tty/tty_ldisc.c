@@ -293,7 +293,7 @@ struct tty_ldisc *tty_ldisc_ref(struct tty_struct *tty)
 }
 EXPORT_SYMBOL_GPL(tty_ldisc_ref);
 
-#if 0//CONFIG_TTY_WAITQUEUE_DOUBLE_CHECK
+#ifdef CONFIG_TTY_WAITQUEUE_DOUBLE_CHECK
 /**
  *	tty_ldisc_waitqueue_valid		-	check ldisk waitqueue validation
  *
@@ -342,22 +342,19 @@ void tty_ldisc_deref(struct tty_ldisc *ld)
 EXPORT_SYMBOL_GPL(tty_ldisc_deref);
 
 
-static inline int __lockfunc
-tty_ldisc_lock(struct tty_struct *tty, unsigned long timeout)
-{
-	return ldsem_down_write(&tty->ldisc_sem, timeout);
-}
-
-static inline int __lockfunc
-tty_ldisc_lock_nested(struct tty_struct *tty, unsigned long timeout)
-{
-	return ldsem_down_write_nested(&tty->ldisc_sem,
-				       LDISC_SEM_OTHER, timeout);
-}
-
-static inline void tty_ldisc_unlock(struct tty_struct *tty)
-{
-	return ldsem_up_write(&tty->ldisc_sem);
+	raw_spin_lock_irqsave(&tty_ldisc_lock, flags);
+	/*
+	 * WARNs if one-too-many reader references were released
+	 * - the last reference must be released with tty_ldisc_put
+	 */
+	WARN_ON(atomic_dec_and_test(&ld->users));
+	raw_spin_unlock_irqrestore(&tty_ldisc_lock, flags);
+#ifdef CONFIG_TTY_WAITQUEUE_DOUBLE_CHECK
+	if (waitqueue_active(&ld->wq_idle) && tty_ldisc_waitqueue_valid(&ld->wq_idle))
+#else
+	if (waitqueue_active(&ld->wq_idle))
+#endif
+		wake_up(&ld->wq_idle);
 }
 
 static int __lockfunc
@@ -502,8 +499,7 @@ static int tty_ldisc_open(struct tty_struct *tty, struct tty_ldisc *ld)
 
 static void tty_ldisc_close(struct tty_struct *tty, struct tty_ldisc *ld)
 {
-	WARN_ON(!test_bit(TTY_LDISC_OPEN, &tty->flags));
-	clear_bit(TTY_LDISC_OPEN, &tty->flags);
+	WARN_ON(!test_and_clear_bit(TTY_LDISC_OPEN, &tty->flags));
 	if (ld->ops->close)
 		ld->ops->close(tty);
 }

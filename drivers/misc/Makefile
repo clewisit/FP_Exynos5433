@@ -39,6 +39,7 @@ obj-$(CONFIG_EP93XX_PWM)	+= ep93xx_pwm.o
 obj-$(CONFIG_DS1682)		+= ds1682.o
 obj-$(CONFIG_TI_DAC7512)	+= ti_dac7512.o
 obj-$(CONFIG_UID_STAT)		+= uid_stat.o
+obj-$(CONFIG_UID_CPUTIME) 	+= uid_cputime.o
 obj-$(CONFIG_C2PORT)		+= c2port/
 obj-$(CONFIG_HMC6352)		+= hmc6352.o
 obj-y				+= eeprom/
@@ -50,30 +51,29 @@ obj-$(CONFIG_PCH_PHUB)		+= pch_phub.o
 obj-y				+= ti-st/
 obj-y				+= lis3lv02d/
 obj-y				+= carma/
-obj-$(CONFIG_USB_SWITCH_FSA9480) += fsa9480.o
 obj-$(CONFIG_ALTERA_STAPL)	+=altera-stapl/
 obj-$(CONFIG_INTEL_MEI)		+= mei/
 obj-$(CONFIG_VMWARE_VMCI)	+= vmw_vmci/
 obj-$(CONFIG_LATTICE_ECP3_CONFIG)	+= lattice-ecp3-config.o
 obj-$(CONFIG_SRAM)		+= sram.o
-obj-$(CONFIG_TSIF) += msm_tsif.o
-obj-$(CONFIG_HAPTIC_ISA1200)		+= isa1200.o
-obj-$(CONFIG_SAMSUNG_JACK)	+= sec_jack.o
-obj-$(CONFIG_NFC_PN547)	+= pn547.o
-ifneq ($(CONFIG_SEC_NFC_SENN3AB),y)
-obj-$(CONFIG_SEC_NFC) += sec_nfc.o
-endif
-obj-$(CONFIG_SEC_MISC)	+= sec_param.o sec_misc.o
-obj-$(CONFIG_QSEECOM) += qseecom.o
-obj-$(CONFIG_QFP_FUSE) += qfp_fuse.o
-obj-$(CONFIG_QSEECOM)  += tzic.o
-obj-$(CONFIG_TI_DRV2667) += ti_drv2667.o
-obj-$(CONFIG_QPNP_MISC) += qpnp-misc.o
-obj-$(CONFIG_APQ8084_DOCKING_STATION)	+= apq8084_dock.o
-obj-y				+= qcom/
-obj-$(CONFIG_UID_SYS_STATS) += uid_sys_stats.o
+obj-$(CONFIG_SCHED_HMP)		+= cci400.o
+obj-$(CONFIG_MIPI_LLI)		+= mipi-lli/
+obj-$(CONFIG_SEC_MODEM_V1)	+= modem_v1/
+obj-$(CONFIG_SEC_MODEM_V2)	+= modem_v2/
+obj-$(CONFIG_QC_MODEM)		+= mdm_if/
+obj-$(CONFIG_LED_COVER)		+= led_cover_pwr.o
+obj-$(CONFIG_SEC_DEV_JACK_ANT)	+= sec_jack_ant.o
+obj-$(CONFIG_SEC_DEV_JACK)	+= sec_jack.o
+
+# SS/DS
+obj-$(CONFIG_CHECK_SIMSLOT_COUNT) += sim_slot.o
+
+# Secure OS Mobicore Interface
+obj-$(CONFIG_MOBICORE_DRIVER)  += tzic.o
+
+# Tima
 obj-$(CONFIG_TIMA_LOG)		+= tima_debug_log.o
+
 obj-$(CONFIG_DM_VERITY)		+= dmverity_query.o
-obj-$(CONFIG_SEC_MODEM) += modem_if/
 
 obj-y += dualwave/

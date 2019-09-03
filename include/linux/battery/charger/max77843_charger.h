@@ -20,9 +20,11 @@
 #define __MAX77843_CHARGER_H __FILE__
 
 #include <linux/mfd/core.h>
+#include <linux/mfd/max77843.h>
+#include <linux/mfd/max77843-private.h>
 #include <linux/regulator/machine.h>
 
-#define MAX77843_SAFEOUT2                0x80
+#define MAX77843_CHG_SAFEOUT2                0x80
 
 /* MAX77843_CHG_REG_CHG_INT */
 #define MAX77843_BYP_I                  (1 << 0)
@@ -31,16 +33,14 @@
 #define MAX77843_CHG_I                  (1 << 4)
 #define MAX77843_WCIN_I			(1 << 5)
 #define MAX77843_CHGIN_I                (1 << 6)
-#define MAX77843_AICL_I                 (1 << 7)
 
 /* MAX77843_CHG_REG_CHG_INT_MASK */
 #define MAX77843_BYP_IM                 (1 << 0)
-#define MAX77843_BATP_IM                 (1 << 2)
+#define MAX77843_THM_IM                 (1 << 2)
 #define MAX77843_BAT_IM                 (1 << 3)
 #define MAX77843_CHG_IM                 (1 << 4)
 #define MAX77843_WCIN_IM		(1 << 5)
 #define MAX77843_CHGIN_IM               (1 << 6)
-#define MAX77843_AICL_IM                (1 << 7)
 
 /* MAX77843_CHG_REG_CHG_INT_OK */
 #define MAX77843_BYP_OK                 0x01
@@ -86,21 +86,22 @@
 #define CHG_CNFG_00_OTG_SHIFT		        1
 #define CHG_CNFG_00_BUCK_SHIFT		        2
 #define CHG_CNFG_00_BOOST_SHIFT		        3
+#define CHG_CNFG_00_DIS_MUIC_CTRL_SHIFT	        5
 #define CHG_CNFG_00_MODE_MASK		        (0xf << CHG_CNFG_00_MODE_SHIFT)
 #define CHG_CNFG_00_CHG_MASK		        (1 << CHG_CNFG_00_CHG_SHIFT)
 #define CHG_CNFG_00_OTG_MASK		        (1 << CHG_CNFG_00_OTG_SHIFT)
 #define CHG_CNFG_00_BUCK_MASK		        (1 << CHG_CNFG_00_BUCK_SHIFT)
 #define CHG_CNFG_00_BOOST_MASK		        (1 << CHG_CNFG_00_BOOST_SHIFT)
-#define CHG_CNFG_00_OTG_CTRL		\
-	(CHG_CNFG_00_OTG_MASK | CHG_CNFG_00_BOOST_MASK)
-
+#define CHG_CNFG_00_DIS_MUIC_CTRL_MASK	        (1 << CHG_CNFG_00_DIS_MUIC_CTRL_SHIFT)
+#define CHG_CNFG_00_OTG_CTRL				(CHG_CNFG_00_OTG_MASK | CHG_CNFG_00_BOOST_MASK)
 #define MAX77843_MODE_DEFAULT                   0x04
 #define MAX77843_MODE_CHGR                      0x01
 #define MAX77843_MODE_OTG                       0x02
 #define MAX77843_MODE_BUCK                      0x04
 #define MAX77843_MODE_BOOST		        0x08
-#define MAX77843_WDTEN				0x10
 
+/* MAX&7843_CHG_REG_CHG_CNFG_01 */
+#define MAX77843_CHG_FQ_2MHz                    (1 << 3)
 /* MAX77843_CHG_REG_CHG_CNFG_02 */
 #define MAX77843_CHG_CC                         0x3F
 
@@ -116,19 +117,16 @@
 #define CHG_CNFG_04_CHG_CV_PRM_SHIFT            0
 #define CHG_CNFG_04_CHG_CV_PRM_MASK             (0x3F << CHG_CNFG_04_CHG_CV_PRM_SHIFT)
 
-/* MAX77843_CHG_REG_CHG_CNFG_06 */
-#define CHG_CNFG_06_WDTCLR_MASK			0x03
-#define MAX77843_WDTCLR				0x01
-
 /* MAX77843_CHG_REG_CHG_CNFG_09 */
 #define MAX77843_CHG_CHGIN_LIM                  0x7F
 
 /* MAX77843_CHG_REG_CHG_CNFG_10 */
-#define MAX77843_CHG_WCIN_LIM                  0x3F
+#define MAX77843_CHG_WCIN_LIM                   0x3F
 
 /* MAX77843_CHG_REG_CHG_CNFG_12 */
-#define CHG_CNFG_12_CHGINSEL_SHIFT		5
-#define CHG_CNFG_12_CHGINSEL_MASK		(0x1 << CHG_CNFG_12_CHGINSEL_SHIFT)
+#define MAX77843_CHG_WCINSEL		        0x40
+#define CHG_CNFG_12_CHGINSEL_SHIFT			5
+#define CHG_CNFG_12_CHGINSEL_MASK			(0x1 << CHG_CNFG_12_CHGINSEL_SHIFT)
 
 /* MAX77843_CHG_REG_CHG_DTLS_00 */
 #define MAX77843_BATP_DTLS		        0x01
@@ -144,20 +142,11 @@
 #define MAX77843_BAT_DTLS                       0x70
 #define MAX77843_BAT_DTLS_SHIFT                 4
 
-/* soft charging */
-#define SOFT_CHG_START_CURR	100	/* mA */
-#define SOFT_CHG_START_DUR	100	/* ms */
-#define SOFT_CHG_CURR_STEP	200	/* mA */
-#define SOFT_CHG_STEP_DUR	30	/* ms */
-
-#define REDUCE_CURRENT_STEP			100
-#define MINIMUM_INPUT_CURRENT			300
 #define SIOP_INPUT_LIMIT_CURRENT                1200
 #define SIOP_CHARGING_LIMIT_CURRENT             1000
-#define SIOP_WIRELESS_INPUT_LIMIT_CURRENT		660
-#define SIOP_WIRELESS_CHARGING_LIMIT_CURRENT	780
-#define SLOW_CHARGING_CURRENT_STANDARD          0x0C
-#define INPUT_CURRENT_1000mA                    0x1E
+#define SIOP_WIRELESS_INPUT_LIMIT_CURRENT       660
+#define SIOP_WIRELESS_CHARGING_LIMIT_CURRENT    780
+#define SLOW_CHARGING_CURRENT_STANDARD          400
 
 struct max77843_charger_data {
 	struct device           *dev;
@@ -168,7 +157,6 @@ struct max77843_charger_data {
 	struct max77843_platform_data *max77843_pdata;
 
 	struct power_supply	psy_chg;
-	struct power_supply	psy_otg;
 
 	struct workqueue_struct *wqueue;
 	struct work_struct	chgin_work;
@@ -176,7 +164,7 @@ struct max77843_charger_data {
 	struct delayed_work	recovery_work;	/*  softreg recovery work */
 	struct delayed_work	wpc_work;	/*  wpc detect work */
 	struct delayed_work	chgin_init_work;	/*  chgin init work */
-	struct delayed_work afc_work;
+	struct delayed_work     afc_work;
 
 /* mutex */
 	struct mutex irq_lock;
@@ -185,7 +173,6 @@ struct max77843_charger_data {
 	/* wakelock */
 	struct wake_lock recovery_wake_lock;
 	struct wake_lock wpc_wake_lock;
-	struct wake_lock afc_wake_lock;
 	struct wake_lock chgin_wake_lock;
 
 	unsigned int	is_charging;
@@ -202,10 +189,12 @@ struct max77843_charger_data {
 	int		siop_level;
 	int uvlo_attach_flag;
 	int uvlo_attach_cable_type;
+#if defined(CONFIG_BATTERY_SWELLING)
+	unsigned int swelling_chg_current;
+#endif
 
 	int		irq_bypass;
 	int		irq_batp;
-	int		irq_aicl;
 
 	int		irq_battery;
 	int		irq_chg;
@@ -230,15 +219,14 @@ struct max77843_charger_data {
 	int		soft_reg_recovery_cnt;
 
 	bool afc_detect;
-#if defined(CONFIG_MUIC_SUPPORT_MULTIMEDIA_DOCK)
 	bool is_mdock;
-#endif
+
 	int pmic_ver;
 	int input_curr_limit_step;
 	int wpc_input_curr_limit_step;
 	int charging_curr_step;
 
-	sec_charger_platform_data_t	*pdata;
+	sec_battery_platform_data_t	*pdata;
 };
 
 #endif /* __MAX77843_CHARGER_H */

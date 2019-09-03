@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfgp2p.h 602251 2015-11-25 11:28:15Z $
+ * $Id: wl_cfgp2p.h 605803 2015-12-11 14:44:32Z $
  */
 #ifndef _wl_cfgp2p_h_
 #define _wl_cfgp2p_h_
@@ -74,7 +74,7 @@ struct p2p_saved_ie {
 };
 
 struct p2p_bss {
-	s32 bssidx;
+	u32 bssidx;
 	struct net_device *dev;
 	struct p2p_saved_ie saved_ie;
 	void *private_data;
@@ -96,7 +96,7 @@ struct p2p_info {
 	wlc_ssid_t ssid;
 };
 
-#define MAX_VNDR_IE_NUMBER	7
+#define MAX_VNDR_IE_NUMBER	10
 
 struct parsed_vndr_ie_info {
 	char *ie_ptr;
@@ -213,13 +213,6 @@ enum wl_cfgp2p_status {
 #ifdef WL_SUPPORT_BACKPORTED_KPATCHES
 #undef WL_SUPPORT_BACKPORTED_KPATCHES
 #endif
-#else
-#ifdef WLP2P
-#ifndef WL_ENABLE_P2P_IF
-/* Enable P2P network Interface if P2P support is enabled */
-#define WL_ENABLE_P2P_IF
-#endif /* WL_ENABLE_P2P_IF */
-#endif /* WLP2P */
 #endif /* (LINUX_VERSION >= VERSION(3, 8, 0)) */
 
 #ifndef WL_CFG80211_P2P_DEV_IF

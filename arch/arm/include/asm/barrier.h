@@ -79,7 +79,6 @@ do {									\
 	ACCESS_ONCE(*p) = (v);						\
 } while (0)
 
-
 #define smp_load_acquire(p)						\
 ({									\
 	typeof(*p) ___p1 = ACCESS_ONCE(*p);				\
@@ -87,6 +86,7 @@ do {									\
 	smp_mb();							\
 	___p1;								\
 })
+
 #define read_barrier_depends()		do { } while(0)
 #define smp_read_barrier_depends()	do { } while(0)
 

@@ -40,6 +40,12 @@ spinlock_t rq_lock;
  */
 DEFINE_PER_CPU(struct tick_sched, tick_cpu_sched);
 
+struct rq_data rq_info;
+struct workqueue_struct *rq_wq;
+spinlock_t rq_lock;
+
+static void update_rq_stats(void);
+static void wakeup_user(void);
 /*
  * The time, when the last jiffy update happened. Protected by jiffies_lock.
  */
@@ -133,6 +139,8 @@ static void tick_sched_do_timer(ktime_t now)
 
 static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 {
+
+	int cpu = smp_processor_id();
 #ifdef CONFIG_NO_HZ_COMMON
 	/*
 	 * When we are idle and the tick is stopped, we have to touch
@@ -150,6 +158,19 @@ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 #endif
 	update_process_times(user_mode(regs));
 	profile_tick(CPU_PROFILING);
+
+	if ((rq_info.init == 1) && (tick_do_timer_cpu == cpu)) {
+
+		/*
+		 * update run queue statistics
+		 */
+		update_rq_stats();
+
+		/*
+		 * wakeup user if needed
+		 */
+		wakeup_user();
+	}
 }
 
 #ifdef CONFIG_NO_HZ_FULL

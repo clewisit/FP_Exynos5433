@@ -23,14 +23,12 @@
 #include <linux/spinlock.h>
 #include <net/pkt_sched.h>
 #include <linux/atomic.h>
-#include <linux/net_map.h>
 #include "rmnet_data_config.h"
 #include "rmnet_data_handlers.h"
 #include "rmnet_data_private.h"
 #include "rmnet_map.h"
 #include "rmnet_data_vnd.h"
 #include "rmnet_data_stats.h"
-#include "rmnet_data_trace.h"
 
 RMNET_LOG_MODULE(RMNET_DATA_LOGMASK_VND);
 
@@ -171,7 +169,6 @@ static netdev_tx_t rmnet_vnd_start_xmit(struct sk_buff *skb,
 					struct net_device *dev)
 {
 	struct rmnet_vnd_private_s *dev_conf;
-	trace_rmnet_vnd_start_xmit(skb);
 	dev_conf = (struct rmnet_vnd_private_s *) netdev_priv(dev);
 	if (dev_conf->local_ep.egress_dev) {
 		/* QoS header should come after MAP header */
@@ -215,7 +212,7 @@ static int _rmnet_vnd_do_qos_ioctl(struct net_device *dev,
 				   int cmd)
 {
 	struct rmnet_vnd_private_s *dev_conf;
-	int rc, qdisc_len = 0;
+	int rc;
 	struct rmnet_ioctl_data_s ioctl_data;
 	rc = 0;
 	dev_conf = (struct rmnet_vnd_private_s *) netdev_priv(dev);
@@ -249,9 +246,7 @@ static int _rmnet_vnd_do_qos_ioctl(struct net_device *dev,
 			rc = -EFAULT;
 			break;
 		}
-		qdisc_len = tc_qdisc_flow_control(dev,
-						  ioctl_data.u.tcm_handle, 1);
-		trace_rmnet_fc_qmi(ioctl_data.u.tcm_handle, qdisc_len, 1);
+		tc_qdisc_flow_control(dev, ioctl_data.u.tcm_handle, 1);
 		break;
 
 	case RMNET_IOCTL_FLOW_DISABLE:
@@ -261,9 +256,7 @@ static int _rmnet_vnd_do_qos_ioctl(struct net_device *dev,
 			rc = -EFAULT;
 		break;
 		}
-		qdisc_len = tc_qdisc_flow_control(dev,
-						  ioctl_data.u.tcm_handle, 0);
-		trace_rmnet_fc_qmi(ioctl_data.u.tcm_handle, qdisc_len, 0);
+		tc_qdisc_flow_control(dev, ioctl_data.u.tcm_handle, 0);
 		break;
 
 	default:
@@ -283,13 +276,10 @@ struct rmnet_vnd_fc_work {
 static void _rmnet_vnd_wq_flow_control(struct work_struct *work)
 {
 	struct rmnet_vnd_fc_work *fcwork;
-	int qdisc_len = 0;
 	fcwork = (struct rmnet_vnd_fc_work *)work;
 
 	rtnl_lock();
-	qdisc_len = tc_qdisc_flow_control(fcwork->dev, fcwork->tc_handle,
-				     fcwork->enable);
-	trace_rmnet_fc_map(fcwork->tc_handle, qdisc_len, fcwork->enable);
+	tc_qdisc_flow_control(fcwork->dev, fcwork->tc_handle, fcwork->enable);
 	rtnl_unlock();
 
 	LOGL("[%s] handle:%08X enable:%d",
@@ -454,7 +444,7 @@ static int rmnet_vnd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		break;
 
 	default:
-		LOGM("Unknown IOCTL 0x%08X", cmd);
+		LOGH("Unkown IOCTL 0x%08X", cmd);
 		rc = -EINVAL;
 	}
 
@@ -555,7 +545,7 @@ int rmnet_vnd_init(void)
  *      - return code of register_netdevice() on other errors
  */
 int rmnet_vnd_create_dev(int id, struct net_device **new_device,
-			 const char *prefix, int use_name)
+			 const char *prefix)
 {
 	struct net_device *dev;
 	char dev_prefix[IFNAMSIZ];
@@ -566,19 +556,17 @@ int rmnet_vnd_create_dev(int id, struct net_device **new_device,
 		return -EINVAL;
 	}
 
-	if (!prefix && !use_name)
+	if (!prefix)
 		p = scnprintf(dev_prefix, IFNAMSIZ, "%s%%d",
 			  RMNET_DATA_DEV_NAME_STR);
-	else if (prefix && use_name)
-		p = scnprintf(dev_prefix, IFNAMSIZ, "%s", prefix);
-	else if (prefix && !use_name)
-		p = scnprintf(dev_prefix, IFNAMSIZ, "%s%%d", prefix);
 	else
-		return RMNET_CONFIG_BAD_ARGUMENTS;
+		p = scnprintf(dev_prefix, IFNAMSIZ, "%s%%d",
+			  prefix);
 	if (p >= (IFNAMSIZ-1)) {
 		LOGE("Specified prefix (%d) longer than IFNAMSIZ", p);
 		return -EINVAL;
 	}
+	pr_info("[MIF] %s, %s\n", __func__, dev_prefix);
 
 	dev = alloc_netdev(sizeof(struct rmnet_vnd_private_s),
 			   dev_prefix,
@@ -587,11 +575,6 @@ int rmnet_vnd_create_dev(int id, struct net_device **new_device,
 		LOGE("Failed to to allocate netdev for id %d", id);
 		*new_device = 0;
 		return -EINVAL;
-	}
-
-	if (!prefix) {
-		/* Configuring UL checksum offload on rmnet_data interfaces */
-		dev->hw_features = NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 	}
 
 	rc = register_netdevice(dev);
@@ -813,7 +796,7 @@ static int _rmnet_vnd_update_flow_map(uint8_t action,
 				itm->tc_flow_valid[i] = 1;
 				itm->tc_flow_id[i] = tc_flow;
 				rc = RMNET_VND_UPDATE_FLOW_OK;
-				LOGD("{%pK}->tc_flow_id[%d]=%08X",
+				LOGD("{%p}->tc_flow_id[%d]=%08X",
 				     itm, i, tc_flow);
 				break;
 			}
@@ -829,7 +812,7 @@ static int _rmnet_vnd_update_flow_map(uint8_t action,
 					itm->tc_flow_valid[i] = 0;
 					itm->tc_flow_id[i] = 0;
 					j++;
-					LOGD("{%pK}->tc_flow_id[%d]=0", itm, i);
+					LOGD("{%p}->tc_flow_id[%d]=0", itm, i);
 				}
 			} else {
 				j++;
@@ -974,7 +957,7 @@ int rmnet_vnd_del_tc_flow(uint32_t id, uint32_t map_flow, uint32_t tc_flow)
 
 	if (r ==  RMNET_VND_UPDATE_FLOW_NO_VALID_LEFT) {
 		if (itm)
-			LOGD("Removed flow mapping [%s][0x%08X]@%pK",
+			LOGD("Removed flow mapping [%s][0x%08X]@%p",
 			     dev->name, itm->map_flow_id, itm);
 		kfree(itm);
 	}

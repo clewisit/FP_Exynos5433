@@ -1,5 +1,5 @@
 /*
- * Definitions for nl80211 vendor command/event access to host driver
+ * Definitions for nl80211 testmode access to host driver
  *
  * Copyright (C) 1999-2016, Broadcom Corporation
  * 
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: brcm_nl80211.h 515765 2014-11-17 12:20:05Z $
+ * $Id: brcm_nl80211.h 454792 2014-02-11 20:40:19Z $
  *
  */
 
@@ -30,7 +30,7 @@
 
 struct bcm_nlmsg_hdr {
 	uint cmd;	/* common ioctl definition */
-	uint len;	/* expected return buffer length */
+	uint len;	/* attached buffer length */
 	uint offset;	/* user buffer offset */
 	uint set;	/* get or set request optional */
 	uint magic;	/* magic number for verification */

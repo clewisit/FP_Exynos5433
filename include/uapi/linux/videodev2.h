@@ -700,22 +700,8 @@ struct v4l2_buffer {
 #define V4L2_BUF_FLAG_TIMESTAMP_UNKNOWN		0x0000
 #define V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC	0x2000
 #define V4L2_BUF_FLAG_TIMESTAMP_COPY		0x4000
-/* Vendor extensions */
-#define V4L2_QCOM_BUF_FLAG_CODECCONFIG		0x10000
-#define V4L2_QCOM_BUF_FLAG_EOSEQ		0x20000
-#define V4L2_QCOM_BUF_TIMESTAMP_INVALID		0x40000
-#define V4L2_QCOM_BUF_FLAG_IDRFRAME		0x80000	/*Image is a IDR-frame*/
-#define V4L2_QCOM_BUF_FLAG_DECODEONLY		0x100000
-#define V4L2_QCOM_BUF_DATA_CORRUPT		0x200000
-#define V4L2_QCOM_BUF_DROP_FRAME		0x400000
-#define V4L2_QCOM_BUF_INPUT_UNSUPPORTED		0x800000
-#define V4L2_QCOM_BUF_FLAG_EOS			0x1000000
-#define V4L2_QCOM_BUF_TS_DISCONTINUITY		0x2000000
-#define V4L2_QCOM_BUF_TS_ERROR			0x4000000
-#define V4L2_QCOM_BUF_FLAG_READONLY		0x8000000
-#define V4L2_MSM_VIDC_BUF_START_CODE_NOT_FOUND	0x10000000
-#define V4L2_MSM_BUF_FLAG_YUV_601_709_CLAMP	0x20000000
-#define V4L2_MSM_BUF_FLAG_MBAFF			0x40000000
+/* Expects and returns a sync fence */
+#define V4L2_BUF_FLAG_USE_SYNC	0x8000
 
 /**
  * struct v4l2_exportbuffer - export of video buffer as DMABUF file descriptor
@@ -1108,6 +1094,9 @@ struct v4l2_dv_timings {
 /* Values for the type field */
 #define V4L2_DV_BT_656_1120	0	/* BT.656/1120 timing type */
 
+#define V4L2_DV_BT_SB_HALF	(1 << 8)	/* side-by-side S3D type */
+#define V4L2_DV_BT_TB		(1 << 6)	/* top and bottom S3D type */
+#define V4L2_DV_BT_FP		(1 << 0)	/* frame packing S3D type */
 
 /** struct v4l2_enum_dv_timings - DV timings enumeration
  * @index:	enumeration index

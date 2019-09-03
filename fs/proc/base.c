@@ -976,68 +976,6 @@ out:
 	return err < 0 ? err : count;
 }
 
-#ifdef CONFIG_SAMP_HOTNESS
-static ssize_t hotness_adjust_write(struct file *file, const char __user *buf,
-				size_t count, loff_t *ppos)
-{
-	struct task_struct *task;
-	char buffer[PROC_NUMBUF];
-	int hotness_adjust;
-	unsigned long flags;
-	int err;
-
-	memset(buffer, 0, sizeof(buffer));
-	if (count > sizeof(buffer) - 1)
-		count = sizeof(buffer) - 1;
-	if (copy_from_user(buffer, buf, count)) {
-		err = -EFAULT;
-		goto out;
-	}
-
-	err = kstrtoint(strstrip(buffer), 0, &hotness_adjust);
-	if (err)
-		goto out;
-
-	task = get_proc_task(file->f_path.dentry->d_inode);
-	if (!task) {
-		err = -ESRCH;
-		goto out;
-	}
-
-	task_lock(task);
-	if (!task->mm) {
-		err = -EINVAL;
-		goto err_task_lock;
-	}
-
-        if ((task->pid & 0xF) != (hotness_adjust & 0xF)) {
-		err = -EINVAL;
-		goto out;
-        }
-
-	if (!lock_task_sighand(task, &flags)) {
-		err = -ESRCH;
-		goto err_task_lock;
-	}
-
-	if (!capable(CAP_SYS_RESOURCE)) {
-		err = -EACCES;
-		goto err_sighand;
-	}
-
-	task->signal->hotness_adj = hotness_adjust >> 4;
-
-err_sighand:
-	unlock_task_sighand(task, &flags);
-err_task_lock:
-	task_unlock(task);
-	put_task_struct(task);
-out:
-	return err < 0 ? err : count;
-}
-#endif
-
-
 static int oom_adjust_permission(struct inode *inode, int mask)
 {
 	uid_t uid;

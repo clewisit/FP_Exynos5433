@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012, Samsung Electronics Co. Ltd. All Rights Reserved.
  *
- * Contact: Kamaldeep Singla <kamal.singla@samsung.com>
+ * Contact: Haeil Hyun <haeil.hyun@samsung.com>
  *
  *
  * This program is free software; you can redistribute it and/or modify
@@ -21,10 +21,27 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/leds.h>
-#include <linux/leds-an30259a.h>
+#include <linux/platform_data/leds-an30259a.h>
 #include <linux/workqueue.h>
 #include <linux/wakelock.h>
-#include <linux/gpio.h>
+#include <linux/err.h>
+#include <linux/of.h>
+#include <linux/platform_device.h>
+#include <linux/sec_sysfs.h>
+
+#ifdef CONFIG_LEDS_USE_ED28
+#ifdef CONFIG_SEC_FACTORY
+extern unsigned int lcdtype;
+bool jig_status = false;
+
+static int __init jig_check(char *str)
+{
+	jig_status = true;
+	return 0;
+}
+early_param("jig", jig_check);
+#endif
+#endif
 
 /* AN30259A register map */
 #define AN30259A_REG_SRESET		0x00
@@ -75,39 +92,20 @@
 #define LED_IMAX_SHIFT			6
 #define AN30259A_CTN_RW_FLG		0x80
 
+#define LED_R_CURRENT		0x28
+#define LED_G_CURRENT		0x28
+#define LED_B_CURRENT		0x28
 #define LED_MAX_CURRENT		0xFF
 #define LED_OFF				0x00
 
 #define	MAX_NUM_LEDS	3
+#define RETRY_COUNT	3
 
-u8 LED_DYNAMIC_CURRENT = 0x28;
-u8 LED_LOWPOWER_MODE = 0x0;
+#define SEC_LED_SPECIFIC
+#define LED_DEEP_DEBUG
 
-u32 LED_R_CURRENT = 0x28;
-u32 LED_G_CURRENT = 0x28;
-u32 LED_B_CURRENT = 0x28;
-
-u32 led_default_cur = 0x28;
-u32 led_lowpower_cur = 0x05;
-
-static struct an30259_led_conf led_conf[] = {
-	{
-		.name = "led_r",
-		.brightness = LED_OFF,
-		.max_brightness = 0,
-		.flags = 0,
-	}, {
-		.name = "led_g",
-		.brightness = LED_OFF,
-		.max_brightness = 0,
-		.flags = 0,
-	}, {
-		.name = "led_b",
-		.brightness = LED_OFF,
-		.max_brightness = 0,
-		.flags = 0,
-	}
-};
+static u8 LED_DYNAMIC_CURRENT = 0x28;
+static u8 LED_LOWPOWER_MODE = 0x0;
 
 enum an30259a_led_enum {
 	LED_R,
@@ -143,18 +141,13 @@ struct an30259a_data {
 
 struct i2c_client *b_client;
 
-#define SEC_LED_SPECIFIC
-#define LED_DEEP_DEBUG
-
-#ifdef SEC_LED_SPECIFIC
-struct device *led_dev;
+static struct device *led_dev;
 /*path : /sys/class/sec/led/led_pattern*/
 /*path : /sys/class/sec/led/led_blink*/
 /*path : /sys/class/sec/led/led_brightness*/
 /*path : /sys/class/leds/led_r/brightness*/
 /*path : /sys/class/leds/led_g/brightness*/
 /*path : /sys/class/leds/led_b/brightness*/
-#endif
 
 static void leds_on(enum an30259a_led_enum led, bool on, bool slopemode,
 					u8 ledcc);
@@ -188,21 +181,42 @@ static int leds_i2c_write_all(struct i2c_client *client)
 {
 	struct an30259a_data *data = i2c_get_clientdata(client);
 	int ret;
+	int i;
 
 	/*we need to set all the configs setting first, then LEDON later*/
 	mutex_lock(&data->mutex);
-	ret = i2c_smbus_write_i2c_block_data(client,
-			AN30259A_REG_SEL | AN30259A_CTN_RW_FLG,
-			AN30259A_REG_MAX - AN30259A_REG_SEL,
-			&data->shadow_reg[AN30259A_REG_SEL]);
+	for (i=0; i<RETRY_COUNT; i++) {
+		ret = i2c_smbus_write_i2c_block_data(client,
+				AN30259A_REG_SEL | AN30259A_CTN_RW_FLG,
+				AN30259A_REG_MAX - AN30259A_REG_SEL,
+				&data->shadow_reg[AN30259A_REG_SEL]);
+
+		if (ret < 0) {
+			dev_err(&client->adapter->dev,
+				"%s: retry for i2c block write\n",
+				__func__);
+		}
+		else
+			break;
+	}
 	if (ret < 0) {
 		dev_err(&client->adapter->dev,
 			"%s: failure on i2c block write\n",
 			__func__);
 		goto exit;
 	}
-	ret = i2c_smbus_write_byte_data(client, AN30259A_REG_LEDON,
-					data->shadow_reg[AN30259A_REG_LEDON]);
+	for (i=0; i<RETRY_COUNT; i++) {
+		ret = i2c_smbus_write_byte_data(client, AN30259A_REG_LEDON,
+						data->shadow_reg[AN30259A_REG_LEDON]);
+
+		if (ret < 0) {
+			dev_err(&client->adapter->dev,
+				"%s: retry for i2c byte write\n",
+				__func__);
+		}
+		else
+			break;
+	}
 	if (ret < 0) {
 		dev_err(&client->adapter->dev,
 			"%s: failure on i2c byte write\n",
@@ -270,6 +284,11 @@ static void leds_on(enum an30259a_led_enum led, bool on, bool slopemode,
 {
 	struct an30259a_data *data = i2c_get_clientdata(b_client);
 
+#ifdef CONFIG_LEDS_BLUE_BRIGHTNESS_OFFSET
+	if (((LED_ON << led) == 0x4)&& ledcc > 0) {
+		ledcc+=40;
+	}
+#endif
 	if (on)
 		data->shadow_reg[AN30259A_REG_LEDON] |= LED_ON << led;
 	else {
@@ -289,13 +308,23 @@ static void leds_on(enum an30259a_led_enum led, bool on, bool slopemode,
 static int leds_set_imax(struct i2c_client *client, u8 imax)
 {
 	int ret;
+	int i;
 	struct an30259a_data *data = i2c_get_clientdata(client);
 
 	data->shadow_reg[AN30259A_REG_SEL] &= ~AN30259A_MASK_IMAX;
 	data->shadow_reg[AN30259A_REG_SEL] |= imax << LED_IMAX_SHIFT;
 
-	ret = i2c_smbus_write_byte_data(client, AN30259A_REG_SEL,
-			data->shadow_reg[AN30259A_REG_SEL]);
+	for (i=0; i<RETRY_COUNT; i++) {
+		ret = i2c_smbus_write_byte_data(client, AN30259A_REG_SEL,
+				data->shadow_reg[AN30259A_REG_SEL]);
+		if (ret < 0){
+			dev_err(&client->adapter->dev,
+			"%s: retry for i2c write\n",
+			__func__);
+		}
+		else
+			break;
+	}
 	if (ret < 0) {
 		dev_err(&client->adapter->dev,
 			"%s: failure on i2c write\n",
@@ -320,9 +349,10 @@ static void an30259a_reset_register_work(struct work_struct *work)
 		printk(KERN_WARNING "leds_i2c_write_all failed\n");
 }
 
-static void an30259a_start_led_pattern(int mode)
+void an30259a_start_led_pattern(int mode)
 {
 	int retval;
+
 	struct i2c_client *client;
 	struct work_struct *reset = 0;
 	client = b_client;
@@ -336,54 +366,46 @@ static void an30259a_start_led_pattern(int mode)
 
 	/* Set to low power consumption mode */
 	if (LED_LOWPOWER_MODE == 1)
-		LED_DYNAMIC_CURRENT = (u8)led_lowpower_cur;
+		LED_DYNAMIC_CURRENT = 0x5;
 	else
-		LED_DYNAMIC_CURRENT = (u8)led_default_cur;
+		LED_DYNAMIC_CURRENT = 0x28;
 
 	switch (mode) {
 	/* leds_set_slope_mode(client, LED_SEL, DELAY,  MAX, MID, MIN,
 		SLPTT1, SLPTT2, DT1, DT2, DT3, DT4) */
 	case CHARGING:
-		pr_info("LED Battery Charging Pattern on\n");
-		leds_on(LED_R, true, false,
-					LED_DYNAMIC_CURRENT);
+		leds_on(LED_R, true, false, LED_DYNAMIC_CURRENT);
 		break;
 
 	case CHARGING_ERR:
-		pr_info("LED Battery Charging error Pattern on\n");
-		leds_on(LED_R, true, true,
-					LED_DYNAMIC_CURRENT);
+		leds_on(LED_R, true, true, LED_DYNAMIC_CURRENT);
 		leds_set_slope_mode(client, LED_R,
 				1, 15, 15, 0, 1, 1, 0, 0, 0, 0);
 		break;
 
 	case MISSED_NOTI:
-		pr_info("LED Missed Notifications Pattern on\n");
-		leds_on(LED_B, true, true,
-					LED_DYNAMIC_CURRENT);
+		leds_on(LED_B, true, true, LED_DYNAMIC_CURRENT);
 		leds_set_slope_mode(client, LED_B,
 					10, 15, 15, 0, 1, 10, 0, 0, 0, 0);
 		break;
 
 	case LOW_BATTERY:
-		pr_info("LED Low Battery Pattern on\n");
-		leds_on(LED_R, true, true,
-					LED_DYNAMIC_CURRENT);
+		leds_on(LED_R, true, true, LED_DYNAMIC_CURRENT);
 		leds_set_slope_mode(client, LED_R,
 					10, 15, 15, 0, 1, 10, 0, 0, 0, 0);
 		break;
 
 	case FULLY_CHARGED:
-		pr_info("LED full Charged battery Pattern on\n");
-		leds_on(LED_G, true, false,
-					LED_DYNAMIC_CURRENT);
+		leds_on(LED_G, true, false, LED_DYNAMIC_CURRENT);
 		break;
 
 	case POWERING:
-		pr_info("LED Powering Pattern on\n");
+		leds_on(LED_G, true, true, LED_DYNAMIC_CURRENT);
 		leds_on(LED_B, true, true, LED_DYNAMIC_CURRENT);
+		leds_set_slope_mode(client, LED_G,
+				0, 8, 4, 1, 2, 2, 3, 3, 3, 3);
 		leds_set_slope_mode(client, LED_B,
-				0, 15, 12, 8, 2, 2, 3, 3, 3, 3);
+				0, 15, 14, 12, 2, 2, 7, 7, 7, 7);
 		break;
 
 	default:
@@ -394,6 +416,7 @@ static void an30259a_start_led_pattern(int mode)
 	if (retval)
 		printk(KERN_WARNING "leds_i2c_write_all failed\n");
 }
+EXPORT_SYMBOL(an30259a_start_led_pattern);
 
 static void an30259a_set_led_blink(enum an30259a_led_enum led,
 					unsigned int delay_on_time,
@@ -411,14 +434,7 @@ static void an30259a_set_led_blink(enum an30259a_led_enum led,
 	if (brightness > LED_MAX_CURRENT)
 		brightness = LED_MAX_CURRENT;
 
-	if (led == LED_R)
-		LED_DYNAMIC_CURRENT = LED_R_CURRENT;
-	else if (led == LED_G)
-		LED_DYNAMIC_CURRENT = LED_G_CURRENT;
-	else if (led == LED_B)
-		LED_DYNAMIC_CURRENT = LED_B_CURRENT;
-
-	/* In user case, LED current is restricted */
+	/* In user case, LED current is restricted to less than 2mA */
 	brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
 
 	if (delay_on_time > SLPTT_MAX_VALUE)
@@ -463,6 +479,29 @@ static ssize_t store_an30259a_led_lowpower(struct device *dev,
 
 	return count;
 }
+static ssize_t store_an30259a_led_brightness(struct device *dev,
+					struct device_attribute *devattr,
+					const char *buf, size_t count)
+{
+	int retval;
+	u8 brightness;
+	struct an30259a_data *data = dev_get_drvdata(dev);
+
+	retval = kstrtou8(buf, 0, &brightness);
+	if (retval != 0) {
+		dev_err(&data->client->dev, "fail to get led_brightness.\n");
+		return count;
+	}
+
+	if (brightness > LED_MAX_CURRENT)
+		brightness = LED_MAX_CURRENT;
+
+	LED_DYNAMIC_CURRENT = brightness;
+
+	printk(KERN_DEBUG "led brightness set to %i\n", brightness);
+
+	return count;
+}
 
 static ssize_t store_an30259a_led_br_lev(struct device *dev,
 					struct device_attribute *devattr,
@@ -491,10 +530,9 @@ static ssize_t store_an30259a_led_pattern(struct device *dev,
 {
 	int retval;
 	unsigned int mode = 0;
-	unsigned int type = 0;
 	struct an30259a_data *data = dev_get_drvdata(dev);
 
-	retval = sscanf(buf, "%d %d", &mode, &type);
+	retval = sscanf(buf, "%1d", &mode);
 
 	if (retval == 0) {
 		dev_err(&data->client->dev, "fail to get led_pattern mode.\n");
@@ -502,7 +540,8 @@ static ssize_t store_an30259a_led_pattern(struct device *dev,
 	}
 
 	an30259a_start_led_pattern(mode);
-	printk(KERN_DEBUG "led pattern : %d is activated\n", mode);
+	printk(KERN_DEBUG "led pattern : %d is activated(Type:%d)\n",
+				mode, LED_LOWPOWER_MODE);
 
 	return count;
 }
@@ -520,7 +559,7 @@ static ssize_t store_an30259a_led_blink(struct device *dev,
 	u8 led_g_brightness = 0;
 	u8 led_b_brightness = 0;
 
-	retval = sscanf(buf, "0x%x %d %d", &led_brightness,
+	retval = sscanf(buf, "0x%8x %5d %5d", &led_brightness,
 				&delay_on_time, &delay_off_time);
 
 	if (retval == 0) {
@@ -546,12 +585,45 @@ static ssize_t store_an30259a_led_blink(struct device *dev,
 
 	leds_i2c_write_all(data->client);
 
-	dev_dbg(dev, "led_blink is called, Color:0x%X Brightness:%i\n",
+	printk(KERN_DEBUG "led_blink is called, Color:0x%X Brightness:%i\n",
 			led_brightness, LED_DYNAMIC_CURRENT);
 
 	return count;
 }
 
+void an30259a_led_blink(int rgb, int on, int off)
+{
+	unsigned int led_brightness = rgb;
+	unsigned int delay_on_time = on;
+	unsigned int delay_off_time = off;
+
+	u8 led_r_brightness = 0;
+	u8 led_g_brightness = 0;
+	u8 led_b_brightness = 0;
+
+	/*Reset an30259a*/
+	an30259a_start_led_pattern(LED_OFF);
+
+	/*Set LED blink mode*/
+	led_r_brightness = ((u32)led_brightness & LED_R_MASK)
+					>> LED_R_SHIFT;
+	led_g_brightness = ((u32)led_brightness & LED_G_MASK)
+					>> LED_G_SHIFT;
+	led_b_brightness = ((u32)led_brightness & LED_B_MASK);
+
+	an30259a_set_led_blink(LED_R, delay_on_time,
+				delay_off_time, led_r_brightness);
+	an30259a_set_led_blink(LED_G, delay_on_time,
+				delay_off_time, led_g_brightness);
+	an30259a_set_led_blink(LED_B, delay_on_time,
+				delay_off_time, led_b_brightness);
+
+	leds_i2c_write_all(b_client);
+
+	printk(KERN_DEBUG "led_blink is called, Color:0x%X Brightness:%i\n",
+			led_brightness, LED_DYNAMIC_CURRENT);
+}
+EXPORT_SYMBOL(an30259a_led_blink);
 
 static ssize_t store_led_r(struct device *dev,
 	struct device_attribute *devattr, const char *buf, size_t count)
@@ -565,12 +637,24 @@ static ssize_t store_led_r(struct device *dev,
 		dev_err(&data->client->dev, "fail to get brightness.\n");
 		goto out;
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "before value of brightness:0x%X\n", brightness);
+#endif
 	if (brightness == 0)
 		leds_on(LED_R, false, false, 0);
-	else
+	else {
+		/* In user case, LED current is restricted to less than 2mA */
+#ifdef CONFIG_SEC_FACTORY
+		brightness = (brightness * 0x28) / LED_MAX_CURRENT;
+#else
+		brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
+#endif
 		leds_on(LED_R, true, false, brightness);
-
+	}
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "after value of brightness:0x%X dynamic current:%i\n",
+				brightness, LED_DYNAMIC_CURRENT);
+#endif
 	leds_i2c_write_all(data->client);
 	an30259a_debug(data->client);
 out:
@@ -589,12 +673,24 @@ static ssize_t store_led_g(struct device *dev,
 		dev_err(&data->client->dev, "fail to get brightness.\n");
 		goto out;
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "before value of brightness:0x%X\n", brightness);
+#endif
 	if (brightness == 0)
 		leds_on(LED_G, false, false, 0);
-	else
+	else {
+		/* In user case, LED current is restricted to less than 2mA */
+#ifdef CONFIG_SEC_FACTORY
+				brightness = (brightness * 0x28) / LED_MAX_CURRENT;
+#else
+				brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
+#endif
 		leds_on(LED_G, true, false, brightness);
-
+	}
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "after value of brightness:0x%X dynamic current:%i\n",
+				brightness, LED_DYNAMIC_CURRENT);
+#endif
 	leds_i2c_write_all(data->client);
 	an30259a_debug(data->client);
 out:
@@ -613,12 +709,24 @@ static ssize_t store_led_b(struct device *dev,
 		dev_err(&data->client->dev, "fail to get brightness.\n");
 		goto out;
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "before value of brightness:0x%X\n", brightness);
+#endif
 	if (brightness == 0)
 		leds_on(LED_B, false, false, 0);
-	else
+	else {
+		/* In user case, LED current is restricted to less than 2mA */
+#ifdef CONFIG_SEC_FACTORY
+				brightness = (brightness * 0x28) / LED_MAX_CURRENT;
+#else
+				brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
+#endif
 		leds_on(LED_B, true, false, brightness);
-
+	}
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "after value of brightness:0x%X dynamic current:%i\n",
+				brightness, LED_DYNAMIC_CURRENT);
+#endif
 	leds_i2c_write_all(data->client);
 	an30259a_debug(data->client);
 out:
@@ -634,7 +742,7 @@ static ssize_t led_delay_on_show(struct device *dev,
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	struct an30259a_led *led = cdev_to_led(led_cdev);
 
-	return snprintf(buf, 10, "%lu\n", led->delay_on_time_ms);
+	return sprintf(buf, "%lu\n", led->delay_on_time_ms);
 }
 
 static ssize_t led_delay_on_store(struct device *dev,
@@ -658,7 +766,7 @@ static ssize_t led_delay_off_show(struct device *dev,
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 	struct an30259a_led *led = cdev_to_led(led_cdev);
 
-	return snprintf(buf, 10, "%lu\n", led->delay_off_time_ms);
+	return sprintf(buf, "%lu\n", led->delay_off_time_ms);
 }
 
 static ssize_t led_delay_off_store(struct device *dev,
@@ -717,9 +825,10 @@ static DEVICE_ATTR(led_blink, 0664, NULL, \
 					store_an30259a_led_blink);
 static DEVICE_ATTR(led_br_lev, 0664, NULL, \
 					store_an30259a_led_br_lev);
+static DEVICE_ATTR(led_brightness, 0664, NULL, \
+					store_an30259a_led_brightness);
 static DEVICE_ATTR(led_lowpower, 0664, NULL, \
 					store_an30259a_led_lowpower);
-
 
 #endif
 static struct attribute *led_class_attrs[] = {
@@ -741,6 +850,7 @@ static struct attribute *sec_led_attributes[] = {
 	&dev_attr_led_pattern.attr,
 	&dev_attr_led_blink.attr,
 	&dev_attr_led_br_lev.attr,
+	&dev_attr_led_brightness.attr,
 	&dev_attr_led_lowpower.attr,
 	NULL,
 };
@@ -750,50 +860,45 @@ static struct attribute_group sec_led_attr_group = {
 };
 #endif
 
-#ifdef CONFIG_OF
-static int an30259a_parse_dt(struct device *dev) {
-	struct device_node *np = dev->of_node;
-	int ret;
-
-	ret = of_property_read_u32(np,
-			"an30259a,default_current", &led_default_cur);
-	if (ret < 0) {
-		led_default_cur = 0x28;
-		pr_warning("%s warning dt parse[%d]\n", __func__, ret);
-	}
-
-	ret = of_property_read_u32(np,
-			"an30259a,lowpower_current", &led_lowpower_cur);
-	if (ret < 0) {
-		led_lowpower_cur = 0x05;
-		pr_warning("%s warning dt parse[%d]\n", __func__, ret);
-	}
-
-	pr_info("%s default %d, lowpower %d\n",
-			__func__, led_default_cur, led_lowpower_cur);
-	return 0;
-}
-#endif
-
-static int an30259a_initialize(struct i2c_client *client,
-				struct an30259a_led *led, int channel)
+static int __devinit an30259a_initialize(struct i2c_client *client,
+					struct an30259a_platform_data *pdata,
+					struct an30259a_led *led, int channel)
 {
 	struct an30259a_data *data = i2c_get_clientdata(client);
 	struct device *dev = &client->dev;
 	int ret;
+	int i;
 
 	/* reset an30259a*/
-	ret = i2c_smbus_write_byte_data(client, AN30259A_REG_SRESET,
-					AN30259A_SRESET);
+	for (i=0; i<RETRY_COUNT; i++) {
+		ret = i2c_smbus_write_byte_data(client, AN30259A_REG_SRESET,
+						AN30259A_SRESET);
+		if (ret < 0){
+			dev_err(&client->adapter->dev,
+			"%s: retry for i2c write\n",
+			__func__);
+		}
+		else
+			break;
+	}
 	if (ret < 0) {
 		dev_err(&client->adapter->dev,
 			"%s: failure on i2c write (reg = 0x%2x)\n",
 			__func__, AN30259A_REG_SRESET);
 		return ret;
 	}
-	ret = i2c_smbus_read_i2c_block_data(client,
-			AN30259A_REG_SRESET | AN30259A_CTN_RW_FLG,
-			AN30259A_REG_MAX, data->shadow_reg);
+	for (i=0; i<RETRY_COUNT; i++) {
+		ret = i2c_smbus_read_i2c_block_data(client,
+				AN30259A_REG_SRESET | AN30259A_CTN_RW_FLG,
+				AN30259A_REG_MAX, data->shadow_reg);
+		if (ret < 0){
+			dev_err(&client->adapter->dev,
+			"%s: retry for i2c read block(ledxcc)\n",
+			__func__);
+		}
+		else
+			break;
+	}
 	if (ret < 0) {
 		dev_err(&client->adapter->dev,
 			"%s: failure on i2c read block(ledxcc)\n",
@@ -802,10 +907,10 @@ static int an30259a_initialize(struct i2c_client *client,
 	}
 	led->channel = channel;
 	led->cdev.brightness_set = an30259a_set_brightness;
-	led->cdev.name = led_conf[channel].name;
-	led->cdev.brightness = led_conf[channel].brightness;
-	led->cdev.max_brightness = led_conf[channel].max_brightness;
-	led->cdev.flags = led_conf[channel].flags;
+	led->cdev.name = pdata->name[channel];
+	led->cdev.brightness = pdata->brightness[channel];
+	led->cdev.max_brightness = pdata->max_brightness[channel];
+	led->cdev.flags = pdata->flags[channel];
 
 	ret = led_classdev_register(dev, &led->cdev);
 
@@ -827,48 +932,99 @@ static int an30259a_initialize(struct i2c_client *client,
 	return 0;
 }
 
-static int an30259a_probe(struct i2c_client *client,
+#ifdef CONFIG_OF
+static struct an30259a_platform_data
+			*of_an30259a_parse_dt(struct device *dev)
+{
+	struct an30259a_platform_data *pdata;
+	struct device_node *nproot = dev->parent->of_node;
+	struct device_node *np;
+	int ret = 0;
+	u32 temp;
+	int i;
+
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	if (unlikely(pdata == NULL)){
+		return ERR_PTR(-ENOMEM);
+	}
+	np = of_find_node_by_name(nproot, "an30259a");
+	if (unlikely(np == NULL)) {
+		dev_err(dev, "rgb node not found\n");
+		devm_kfree(dev, pdata);
+		return ERR_PTR(-EINVAL);
+	}
+
+	for (i = 0; i < 3; i++)	{
+		ret = of_property_read_string_index(np, "rgb-name", i,
+						(const char **)&pdata->name[i]);
+		if (IS_ERR_VALUE(ret)) {
+			devm_kfree(dev, pdata);
+			return ERR_PTR(ret);
+		}
+
+		ret = of_property_read_u32_index(np, "rgb-brightness", i, &temp);
+		if (IS_ERR_VALUE(ret)) {
+			devm_kfree(dev, pdata);
+			return ERR_PTR(ret);
+		}
+		pdata->brightness[i] = (int)temp;
+
+		ret = of_property_read_u32_index(np, "rgb-maxbrightness", i, &temp);
+		if (IS_ERR_VALUE(ret)) {
+			devm_kfree(dev, pdata);
+			return ERR_PTR(ret);
+		}
+		pdata->max_brightness[i] = (int)temp;
+
+		ret = of_property_read_u32_index(np, "rgb-flags",i , &temp);
+		if (IS_ERR_VALUE(ret)) {
+			devm_kfree(dev, pdata);
+			return ERR_PTR(ret);
+		}
+		pdata->flags[i] = (int)temp;
+	}
+
+	return pdata;
+}
+#endif
+static int __devinit an30259a_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
 	struct an30259a_data *data;
+	struct an30259a_platform_data *pdata = NULL;
 	int ret, i;
 
-	dev_err(&client->adapter->dev, "%s\n", __func__);
+	dev_dbg(&client->adapter->dev, "%s\n", __func__);
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		dev_err(&client->dev, "need I2C_FUNC_I2C.\n");
 		return -ENODEV;
 	}
- 
+
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (!data) {
 		dev_err(&client->adapter->dev,
 			"failed to allocate driver data.\n");
 		return -ENOMEM;
 	}
-#ifdef CONFIG_OF
-	ret = an30259a_parse_dt(&client->dev);
-	if (ret) {
-		pr_err("[%s] an30259a parse dt failed\n", __func__);
-		kfree(data);
-		return ret;
-	}
-#endif
 
 	i2c_set_clientdata(client, data);
 	data->client = client;
 	b_client = client;
 
+#ifdef CONFIG_OF
+	pdata = of_an30259a_parse_dt(&client->dev);
+	if (unlikely(IS_ERR(pdata))){
+		return PTR_ERR(pdata);
+	}
+#else
+	pdata = dev_get_platdata(dev);
+#endif
+
 	mutex_init(&data->mutex);
 	/* initialize LED */
-
-	LED_R_CURRENT = LED_G_CURRENT = LED_B_CURRENT = led_default_cur;
-	led_conf[0].max_brightness = LED_R_CURRENT;
-	led_conf[1].max_brightness = LED_G_CURRENT;
-	led_conf[2].max_brightness = LED_B_CURRENT;
-
 	for (i = 0; i < MAX_NUM_LEDS; i++) {
 
-		ret = an30259a_initialize(client, &data->leds[i], i);
+		ret = an30259a_initialize(client, pdata, &data->leds[i], i);
 
 		if (ret < 0) {
 			dev_err(&client->adapter->dev, "failure on initialization\n");
@@ -877,27 +1033,35 @@ static int an30259a_probe(struct i2c_client *client,
 		INIT_WORK(&(data->leds[i].brightness_work),
 				 an30259a_led_brightness_work);
 	}
-
+#ifdef CONFIG_LEDS_USE_ED28
+#ifdef CONFIG_SEC_FACTORY
+		if( lcdtype == 0 && jig_status == false) {
+			leds_on(LED_R, true, false, LED_DYNAMIC_CURRENT);
+			leds_i2c_write_all(data->client);
+			an30259a_debug(data->client);
+		}
+#endif
+#endif
 #ifdef SEC_LED_SPECIFIC
-	led_dev = device_create(sec_class, NULL, 0, data, "led");
+	led_dev = sec_device_create(data, "led");
 	if (IS_ERR(led_dev)) {
 		dev_err(&client->dev,
 			"Failed to create device for samsung specific led\n");
 		ret = -ENODEV;
-		goto exit;
+		goto exit_sysfs;
 	}
 	ret = sysfs_create_group(&led_dev->kobj, &sec_led_attr_group);
 	if (ret) {
 		dev_err(&client->dev,
 			"Failed to create sysfs group for samsung specific led\n");
-		goto exit1;
+		goto exit_sysfs;
 	}
 #endif
+	pr_info("an30259_end_probe\n");
 	return ret;
-
 #ifdef SEC_LED_SPECIFIC
-exit1:
-	device_destroy(sec_class, 0);
+exit_sysfs:
+	sec_device_destroy(led_dev->devt);
 #endif
 exit:
 	mutex_destroy(&data->mutex);
@@ -905,7 +1069,7 @@ exit:
 	return ret;
 }
 
-static int an30259a_remove(struct i2c_client *client)
+static int __devexit an30259a_remove(struct i2c_client *client)
 {
 	struct an30259a_data *data = i2c_get_clientdata(client);
 	int i;
@@ -931,25 +1095,18 @@ static struct i2c_device_id an30259a_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, an30259a_id);
 
-static struct of_device_id an30259a_match_table[] = {
-	{ .compatible = "an30259a,led",},
-	{ },
-};
-
 static struct i2c_driver an30259a_i2c_driver = {
 	.driver = {
 		.owner	= THIS_MODULE,
 		.name	= "an30259a",
-		.of_match_table = an30259a_match_table,
 	},
 	.id_table = an30259a_id,
 	.probe = an30259a_probe,
-	.remove = an30259a_remove,
+	.remove = __devexit_p(an30259a_remove),
 };
 
 static int __init an30259a_init(void)
 {
-	printk(KERN_ERR "%s\n", __func__);
 	return i2c_add_driver(&an30259a_i2c_driver);
 }
 
@@ -962,5 +1119,5 @@ module_init(an30259a_init);
 module_exit(an30259a_exit);
 
 MODULE_DESCRIPTION("AN30259A LED driver");
-MODULE_AUTHOR("Kamaldeep Singla <kamal.singla@samsung.com");
+MODULE_AUTHOR("Haeil Hyun <haeil.hyun@samsung.com");
 MODULE_LICENSE("GPL v2");

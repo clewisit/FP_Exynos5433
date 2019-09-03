@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_cdc.c 492377 2014-07-21 19:54:06Z $
+ * $Id: dhd_cdc.c 581040 2015-08-21 05:51:27Z $
  *
  * BDC is like CDC, except it includes a header for data packets to convey
  * packet priority over the bus, and flags (e.g. to indicate checksum status
@@ -248,13 +248,6 @@ dhdcdc_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len, uint8
 			goto done;
 		}
 #endif /* CONFIG_CONTROL_PM */
-#if defined(WLAIBSS)
-		if (dhd->op_mode == DHD_FLAG_IBSS_MODE) {
-			DHD_ERROR(("%s: SET PM ignored for IBSS!(Requested:%d)\n",
-				__FUNCTION__, *(char *)buf));
-			goto done;
-		}
-#endif /* WLAIBSS */
 		DHD_ERROR(("%s: SET PM to %d\n", __FUNCTION__, *(char *)buf));
 	}
 #endif /* CUSTOMER_HW4 */
@@ -378,6 +371,9 @@ dhd_prot_iovar_op(dhd_pub_t *dhdp, const char *name,
 void
 dhd_prot_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 {
+	if (!dhdp || !dhdp->prot)
+		return;
+
 	bcm_bprintf(strbuf, "Protocol CDC: reqid %d\n", dhdp->prot->reqid);
 #ifdef PROP_TXSTATUS
 	dhd_wlfc_dump(dhdp, strbuf);
@@ -417,17 +413,6 @@ dhd_prot_hdrpush(dhd_pub_t *dhd, int ifidx, void *PKTBUF)
 }
 #undef PKTBUF	/* Only defined in the above routine */
 
-uint
-dhd_prot_hdrlen(dhd_pub_t *dhd, void *PKTBUF)
-{
-	uint hdrlen = 0;
-#ifdef BDC
-	/* Length of BDC(+WLFC) headers pushed */
-	hdrlen = BDC_HEADER_LEN + (((struct bdc_header *)PKTBUF)->dataOffset * 4);
-#endif
-	return hdrlen;
-}
-
 int
 dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_info,
 	uint *reorder_info_len)
@@ -459,11 +444,7 @@ dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_in
 		goto exit;
 	}
 
-	if ((*ifidx = BDC_GET_IF_IDX(h)) >= DHD_MAX_IFS) {
-		DHD_ERROR(("%s: rx data ifnum out of range (%d)\n",
-		           __FUNCTION__, *ifidx));
-		return BCME_ERROR;
-	}
+	*ifidx = BDC_GET_IF_IDX(h);
 
 	if (((h->flags & BDC_FLAG_VER_MASK) >> BDC_FLAG_VER_SHIFT) != BDC_PROTO_VER) {
 		DHD_ERROR(("%s: non-BDC packet received, flags = 0x%x\n",
@@ -528,8 +509,9 @@ dhd_prot_attach(dhd_pub_t *dhd)
 	return 0;
 
 fail:
-	if (cdc != NULL)
-		DHD_OS_PREFREE(dhd, cdc, sizeof(dhd_prot_t));
+	if (cdc != NULL) {
+		DHD_OS_PREFREE(dhd, DHD_PREALLOC_PROT, cdc, sizeof(dhd_prot_t));
+	}
 	return BCME_NOMEM;
 }
 
@@ -540,15 +522,14 @@ dhd_prot_detach(dhd_pub_t *dhd)
 #ifdef PROP_TXSTATUS
 	dhd_wlfc_deinit(dhd);
 #endif
-	DHD_OS_PREFREE(dhd, dhd->prot, sizeof(dhd_prot_t));
+	DHD_OS_PREFREE(dhd, DHD_PREALLOC_PROT, dhd->prot, sizeof(dhd_prot_t));
 	dhd->prot = NULL;
 }
 
 void
 dhd_prot_dstats(dhd_pub_t *dhd)
 {
-	/*  copy bus stats */
-
+/* No stats from dongle added yet, copy bus stats */
 	dhd->dstats.tx_packets = dhd->tx_packets;
 	dhd->dstats.tx_errors = dhd->tx_errors;
 	dhd->dstats.rx_packets = dhd->rx_packets;
@@ -559,7 +540,7 @@ dhd_prot_dstats(dhd_pub_t *dhd)
 }
 
 int
-dhd_sync_with_dongle(dhd_pub_t *dhd)
+dhd_prot_init(dhd_pub_t *dhd)
 {
 	int ret = 0;
 	wlc_rev_info_t revinfo;
@@ -573,23 +554,13 @@ dhd_sync_with_dongle(dhd_pub_t *dhd)
 		goto done;
 
 
-	dhd_process_cid_mac(dhd, TRUE);
-
 	ret = dhd_preinit_ioctls(dhd);
-
-	if (!ret)
-		dhd_process_cid_mac(dhd, FALSE);
 
 	/* Always assumes wl for now */
 	dhd->iswl = TRUE;
 
 done:
 	return ret;
-}
-
-int dhd_prot_init(dhd_pub_t *dhd)
-{
-	return TRUE;
 }
 
 void

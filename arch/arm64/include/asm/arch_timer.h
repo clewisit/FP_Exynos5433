@@ -104,8 +104,11 @@ static inline u32 arch_timer_get_cntkctl(void)
 	return cntkctl;
 }
 
-static inline void arch_timer_set_cntkctl(u32 cntkctl)
-{
+	/* Enable user access to the virtual counter and frequency. */
+	if (IS_ENABLED(CONFIG_ARM_ARCH_TIMER_VCT_ACCESS))
+		cntkctl |= (1 << 1);
+	else
+		cntkctl &= ~(1 << 1);
 	asm volatile("msr	cntkctl_el1, %0" : : "r" (cntkctl));
 }
 

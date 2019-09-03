@@ -14,6 +14,13 @@
  */
 #include "ssp.h"
 
+void report_mag_data(struct ssp_data *data, struct sensor_value *magdata)
+{
+	data->buf[GEOMAGNETIC_SENSOR].x = magdata->x;
+	data->buf[GEOMAGNETIC_SENSOR].y = magdata->y;
+	data->buf[GEOMAGNETIC_SENSOR].z = magdata->z;
+}
+
 /*************************************************************************/
 /* AKM Daemon Library ioctl						 */
 /*************************************************************************/
@@ -62,7 +69,13 @@ static long akmd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case ECS_IOCTL_GET_MAGDATA:
-		akmdbuf.uMagData[0] = 1;
+		if ((data->buf[GEOMAGNETIC_SENSOR].x == 0)
+			&& (data->buf[GEOMAGNETIC_SENSOR].y == 0)
+			&& (data->buf[GEOMAGNETIC_SENSOR].z == 0))
+			akmdbuf.uMagData[0] = 0;
+		else
+			akmdbuf.uMagData[0] = 1;
+
 		akmdbuf.uMagData[1] = data->buf[GEOMAGNETIC_SENSOR].x & 0xff;
 		akmdbuf.uMagData[2] = data->buf[GEOMAGNETIC_SENSOR].x >> 8;
 		akmdbuf.uMagData[3] = data->buf[GEOMAGNETIC_SENSOR].y & 0xff;
@@ -85,9 +98,6 @@ static long akmd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return -ENOTTY;
 	}
 
-	if (iRet < 0)
-		return iRet;
-
 	return akmd_copy_out(cmd, argp, akmdbuf.uData, sizeof(akmdbuf));
 }
 
@@ -99,7 +109,18 @@ static const struct file_operations akmd_fops = {
 
 void initialize_magnetic(struct ssp_data *data)
 {
+	/* AKM Daemon Library */
+	data->aiCheckStatus[GEOMAGNETIC_SENSOR] = NO_SENSOR_STATE;
+	data->aiCheckStatus[ORIENTATION_SENSOR] = NO_SENSOR_STATE;
+
 	data->akmd_device.minor = MISC_DYNAMIC_MINOR;
 	data->akmd_device.name = "akm8963";
 	data->akmd_device.fops = &akmd_fops;
+
+	misc_register(&data->akmd_device);
+}
+
+void remove_magnetic(struct ssp_data *data)
+{
+	misc_deregister(&data->akmd_device);
 }

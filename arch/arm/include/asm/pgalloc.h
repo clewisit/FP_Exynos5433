@@ -127,60 +127,58 @@ static inline void pte_free(struct mm_struct *mm, pgtable_t pte)
 	__free_page(pte);
 }
 
+extern int boot_mode_security;
+
 static inline void __pmd_populate(pmd_t *pmdp, phys_addr_t pte,
 				  pmdval_t prot)
 {
 	pmdval_t pmdval = (pte + PTE_HWTABLE_OFF) | prot;
 #ifdef	CONFIG_TIMA_RKP_L1_TABLES
-	unsigned long cmd_id = 0x3f809221;
-	unsigned long tima_wr_out, pmd_base;
-#if __GNUC__ >= 4 && __GNUC_MINOR__ >= 6
-        __asm__ __volatile__(".arch_extension sec");
-#endif
-	if (tima_is_pg_protected((unsigned long) pmdp) == 0  && boot_mode_security == 0) {
-		pmdp[0] = __pmd(pmdval);
-#ifndef CONFIG_ARM_LPAE
-		pmdp[1] = __pmd(pmdval + 256 * sizeof(pte_t));
-#endif
-	} else {
+	unsigned long cmd_id = 0x83809000;
+	unsigned long tima_wr_out;
+
+#ifndef rkp_call
+#ifdef CONFIG_HYP_RKP 
+#define rkp_call "hvc #9\n"
+ __asm__ __volatile__(".arch_extension virt");
+#else
+#define rkp_call "smc #9\n" 
+ __asm__ __volatile__(".arch_extension sec");
+#endif //CONFIG_HYP_RKP
+#endif	
+
+
+ if (boot_mode_security) {
 	clean_dcache_area(pmdp, 8);
 	__asm__ __volatile__ (
-		"stmfd  sp!,{r0, r8-r11}\n"
-		"mov   	r11, r0\n"
+		"stmfd  sp!,{r0-r4}\n"
+		"mov   	r2, r0\n"  /* dummy code here, 09 operation doesn't use it */
 		"mov    r0, %1\n"
-		"mov	r8, %2\n"
-		"mov    r9, %3\n"
-		"mov    r10, %4\n"
-		"mcr    p15, 0, r8, c7, c14, 1\n"
-		"add    r8, r8, #4\n"
-		"mcr    p15, 0, r8, c7, c14, 1\n"
+		"mov	r1, %2\n"
+		"mov    r3, %3\n"
+		"mov    r4, %4\n"
+		"mcr    p15, 0, r1, c7, c14, 1\n"
+		"add    r1, r1, #4\n"
+		"mcr    p15, 0, r1, c7, c14, 1\n"
 		"dsb\n"
-		"smc    #9\n"
-		"sub    r8, r8, #4\n"
-		"mcr    p15, 0, r8, c7, c6,  1\n"
-		"dsb\n"
-
-		"mov    %0, r10\n"
-		"add    r8, r8, #4\n"
-		"mcr    p15, 0, r8, c7, c6,  1\n"
-		"dsb\n"
-
+		rkp_call
+//		"hvc    #9\n"
+//		"mcr    p15, 0, r1, c7, c10, 1\n"
+//		"sub    r1, r1, #4\n"
+//		"mcr    p15, 0, r1, c7, c10, 1\n"
 		"mov    r0, #0\n"
-		"mcr    p15, 0, r0, c8, c3, 0\n"
+		"mcr    p15, 0, r0, c8, c3, 0\n"  /* cache is OK, but still need to flush the whole TLB is the L2 Monitoring is ON */ 
 		"dsb\n"
 		"isb\n"
-		"pop    {r0, r8-r11}\n"
-		:"=r"(tima_wr_out):"r"(cmd_id),"r"((unsigned long)pmdp),"r"(pmdval),"r"(__pmd(pmdval + 256 * sizeof(pte_t))):"r0","r8","r9","r10","r11","cc");
+		"ldmfd  sp!,  {r0-r4}\n"
+		:"=r"(tima_wr_out):"r"(cmd_id),"r"((unsigned long)pmdp),"r"(__pmd(pmdval)),"r"(__pmd(pmdval + 256 * sizeof(pte_t))):"r0","r1", "r2","r3","r4","cc");
+ } else {
+	pmdp[0] = __pmd(pmdval);
+#ifndef CONFIG_ARM_LPAE
+	pmdp[1] = __pmd(pmdval + 256 * sizeof(pte_t));
+#endif
+ }
 
-	#ifdef CONFIG_TIMA_RKP_DEBUG
-		if ((pmdp[0]|0x4)!=(__pmd(pmdval)|0x4)) {
-			tima_debug_signal_failure(0x3f80f221, 7);
-		}
-		if ((pmdp[1]|0x4)!=((__pmd(pmdval + 256 * sizeof(pte_t)))|0x4)) {
-			tima_debug_signal_failure(0x3f80f221, 8);
-		}
-	#endif
-	}
 #else
 	pmdp[0] = __pmd(pmdval);
 #ifndef CONFIG_ARM_LPAE

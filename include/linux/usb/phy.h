@@ -96,9 +96,11 @@ struct usb_phy {
 	/* to support controllers that have multiple transceivers */
 	struct list_head	head;
 
-	/* initialize/shutdown the OTG controller */
+	/* initialize/shutdown/get status of the OTG controller */
 	int	(*init)(struct usb_phy *x);
 	void	(*shutdown)(struct usb_phy *x);
+	bool	(*is_active)(struct usb_phy *x);
+	void	(*tune)(struct usb_phy *x);
 
 	/* enable/disable VBUS */
 	int	(*set_vbus)(struct usb_phy *x, int on);
@@ -185,6 +187,16 @@ usb_phy_shutdown(struct usb_phy *x)
 		x->shutdown(x);
 }
 
+static inline bool
+usb_phy_is_active(struct usb_phy *x)
+{
+	if (x->is_active)
+		return x->is_active(x);
+
+	/* Always active by default */
+	return true;
+}
+
 static inline int
 usb_phy_vbus_on(struct usb_phy *x)
 {
@@ -203,35 +215,17 @@ usb_phy_vbus_off(struct usb_phy *x)
 	return x->set_vbus(x, false);
 }
 
-static inline int
-usb_phy_set_params(struct usb_phy *x)
+static inline void
+usb_phy_tune(struct usb_phy *x)
 {
-	if (x && x->set_params)
-		return x->set_params(x);
-
-	return 0;
+	if (x->tune)
+		x->tune(x);
 }
 
-static inline int
-usb_phy_post_init(struct usb_phy *x)
-{
-	if (x && x->post_init)
-		return x->post_init(x);
-
-	return 0;
-}
-
-static inline int
-usb_phy_reset(struct usb_phy *x)
-{
-	if (x && x->reset)
-		return x->reset(x);
-
-	return 0;
-}
 
 /* for usb host and peripheral controller drivers */
 #if IS_ENABLED(CONFIG_USB_PHY)
+extern bool usb_phy_check_op(void);
 extern struct usb_phy *usb_get_phy(enum usb_phy_type type);
 extern struct usb_phy *devm_usb_get_phy(struct device *dev,
 	enum usb_phy_type type);
@@ -244,6 +238,11 @@ extern void devm_usb_put_phy(struct device *dev, struct usb_phy *x);
 extern int usb_bind_phy(const char *dev_name, u8 index,
 				const char *phy_dev_name);
 #else
+static inline bool usb_phy_check_op(void)
+{
+	return false;
+}
+
 static inline struct usb_phy *usb_get_phy(enum usb_phy_type type)
 {
 	return ERR_PTR(-ENXIO);

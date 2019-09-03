@@ -430,16 +430,12 @@ static INLINE void cifb_queue_unlink(struct CIFB_HEAD_INFO *q,
 	q->cnt--;
 }
 
-static INLINE struct CIFB_INFO * cifb_queue_free(struct CIFB_HEAD_INFO *q,
+static INLINE void cifb_queue_free(struct CIFB_HEAD_INFO *q,
 						struct CIFB_INFO *cifb)
 {
-	struct CIFB_INFO *next = cifb->ptNext;
-
 	CIF_ASSERT(q->cnt != 0);
 	cifb_queue_unlink(q, cifb);
 	cifb_free_buffer(cifb);
-
-	return next;
 }
 
 static INLINE struct CIFB_INFO *cifb_peek_frist(struct CIFB_HEAD_INFO *q)
@@ -489,6 +485,7 @@ static INLINE struct CIFB_INFO *cifb_copydec(U8 *dec_buf, struct CIFB_INFO *cifb
 			struct CIFB_HEAD_INFO *head, UINT len)
 {
 	UINT copied;
+	struct CIFB_INFO *next;
 
 	CIF_ASSERT(cifb != NULL);
 	CIF_ASSERT(len && (head->tts_len >= len));
@@ -498,9 +495,11 @@ static INLINE struct CIFB_INFO *cifb_copydec(U8 *dec_buf, struct CIFB_INFO *cifb
 		if (copied)
 			CIF_DATA_COPY(dec_buf, cifb->ts_ptr, copied);
 
-		if (cifb->ts_size == copied)
-			cifb = cifb_queue_free(head, cifb);
-		else {
+		if (cifb->ts_size == copied) {
+			next = cifb->ptNext;
+			cifb_queue_free(head, cifb);
+			cifb = next;
+		} else {
 			cifb->ts_ptr += copied;
 			cifb->ts_size -= copied;
 			head->tts_len -= copied;

@@ -35,7 +35,6 @@ static struct mfd_cell max77823_devs[] = {
 
 static const u8 max77823_mask_reg[] = {
 	[CHG_IRQ] = MAX77823_CHG_INT_MASK,
-	[FUEL_IRQ] = MAX77823_FUEL_INT_MASK,
 };
 
 int max77823_read_reg(struct i2c_client *i2c, u8 reg, u8 *dest)
@@ -276,14 +275,14 @@ static irqreturn_t max77823_irq_thread(int irq, void *data)
 
 	if (irq_src & MAX77823_IRQSRC_CHG) {
 		/* CHG_IRQ */
-		max77823_read_reg(max77823->charger,
-			MAX77823_CHG_INT, &irq_reg[CHG_IRQ]);
+		ret = max77823_read_reg(max77823->charger,
+					MAX77823_CHG_INT, &irq_reg[CHG_IRQ]);
 
 		pr_info("%s: charger interrupt(0x%02x)\n",
 				__func__, irq_reg[CHG_IRQ]);
 
-		max77823_read_reg(max77823->charger,
-			MAX77823_CHG_INT_MASK, &reg_data);
+		ret = max77823_read_reg(max77823->charger,
+					MAX77823_CHG_INT_MASK, &reg_data);
 		pr_info("%s: charger interrupt mask(0x%02x)\n",
 			__func__, reg_data);
 
@@ -429,11 +428,11 @@ static int of_max77823_dt(struct device *dev, struct max77823_platform_data *pda
 }
 #endif /* CONFIG_OF */
 
-static int max77823_probe(struct i2c_client *client,
+static int __devinit max77823_probe(struct i2c_client *client,
 				    const struct i2c_device_id *id)
 {
 	struct max77823_dev *max77823;
-	struct max77823_platform_data *pdata;
+	struct max77823_platform_data *pdata = client->dev.platform_data;
 
 	int ret;
 
@@ -451,18 +450,18 @@ static int max77823_probe(struct i2c_client *client,
 			dev_err(&client->dev,
 				"Failed to allocate memory\n");
 			ret = -ENOMEM;
-			goto err;
+			goto err_free;
 		}
-
 
 		ret = of_max77823_dt(&client->dev, pdata);
 		if (ret < 0) {
 			dev_err(&client->dev, "Failed to get device of_node\n");
-			goto err;
+			goto err_pdata_free;
 		}
 		client->dev.platform_data = pdata;
-	} else
+	} else {
 		pdata = client->dev.platform_data;
+	}
 
 	max77823->i2c = client;
 	max77823->dev = &client->dev;
@@ -477,26 +476,28 @@ static int max77823_probe(struct i2c_client *client,
 			pr_err("%s: irq_alloc_descs Fail ret(%d)\n",
 			       __func__, pdata->irq_base);
 			ret = -EINVAL;
-		} else
+			goto err_free;
+		} else {
 			max77823->irq_base = pdata->irq_base;
+		}
 
 		max77823->irq_gpio = pdata->irq_gpio;
 		max77823->wakeup = pdata->wakeup;
-		gpio_tlmm_config(GPIO_CFG(max77823->irq_gpio, 0, GPIO_CFG_INPUT,
-			GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_DISABLE);
 	} else {
 		ret = -EINVAL;
-		goto err;
+		goto err_free;
 	}
 	mutex_init(&max77823->i2c_lock);
 
 	i2c_set_clientdata(client, max77823);
 
 	max77823->charger = i2c_new_dummy(client->adapter, I2C_ADDR_CHARGER);
-	i2c_set_clientdata(max77823->charger, max77823);
+	if (max77823->charger)
+		i2c_set_clientdata(max77823->charger, max77823);
 
 	max77823->fuelgauge = i2c_new_dummy(client->adapter, I2C_ADDR_FUELGAUGE);
-	i2c_set_clientdata(max77823->fuelgauge, max77823);
+	if (max77823->fuelgauge)
+		i2c_set_clientdata(max77823->fuelgauge, max77823);
 
 	ret = max77823_irq_init(max77823);
 	if (ret < 0)
@@ -519,17 +520,19 @@ static int max77823_probe(struct i2c_client *client,
 
 err_mfd:
 	mfd_remove_devices(max77823->dev);
-	free_irq(max77823->irq, max77823);
 err_irq_init:
 	i2c_unregister_device(max77823->charger);
 	i2c_unregister_device(max77823->fuelgauge);
-err:
+#if defined(CONFIG_OF)
+err_pdata_free:
+	kfree(pdata);
+#endif
+err_free:
 	kfree(max77823);
-
 	return ret;
 }
 
-static int max77823_remove(struct i2c_client *client)
+static int __devexit max77823_remove(struct i2c_client *client)
 {
 	struct max77823_dev *max77823 = i2c_get_clientdata(client);
 
@@ -562,7 +565,7 @@ static struct i2c_driver max77823_driver = {
 #endif
 	},
 	.probe	= max77823_probe,
-	.remove	= max77823_remove,
+	.remove	= __devexit_p(max77823_remove),
 	.id_table	= max77823_id,
 };
 

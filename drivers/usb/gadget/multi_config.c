@@ -23,7 +23,6 @@
 static int multi; /* current configuration */
 static int is_multi; /* Is multi configuration available ? */
 static int stringMode = OTHER_REQUEST;
-static int configMode = OTHER_REQUEST;
 static int interfaceCount;
 
 /* Description  : Set configuration number
@@ -32,15 +31,14 @@ static int interfaceCount;
  */
 unsigned set_config_number(unsigned num)
 {
-	if (is_multi_configuration()){
+	if(is_multi_configuration()) {
 		USB_DBG_ESS("multi config_num=%d(zero base)\n", num);
 		if(num < MAX_MULTI_CONFIG_NUM)
 			multi = num;	/* save config number from Host request */
 	} else {
 		USB_DBG_ESS("single config num=%d\n", num);
-		multi = 0; /* single config */
+		multi = 0;	/* single config */
 	}
-
 	return 0;	/* always return 0 config */
 }
 
@@ -97,8 +95,8 @@ unsigned count_multi_config(struct usb_configuration *c, unsigned count)
 		} else if (!strcmp(f->name, MULTI_FUNCTION_2)) {
 			USB_DBG("%s +\n", MULTI_FUNCTION_2);
 			f_second = 1;
-		} else if (!strcmp(f->name, MULTI_EXCEPTION_FUNCTION) || !strcmp(f->name, MULTI_EXCEPTION_FUNCTION_F_FS) ) {
-			USB_DBG("exception %s +\n", f->name );
+		} else if (!strcmp(f->name, MULTI_EXCEPTION_FUNCTION)) {
+			USB_DBG("exception %s +\n", MULTI_EXCEPTION_FUNCTION);
 			f_exception = 1;
 		}
 	}
@@ -264,23 +262,6 @@ void set_string_mode(u16 w_length)
 	}
 }
 
-/* Description  : Set config mode
- *		  This mode will be used for deciding other interface.
- * Parameter    : u16 w_length
- *		- 4 means MAC request 
- *		- Windows and Linux PC always request Maxconfig size.
- */
-void set_config_mode(u16 w_length)
-{
-	if (w_length == 4) {
-		USB_DBG("mac request\n");
-		configMode = MAC_REQUEST;
-	} else if (w_length == 0) {
-		USB_DBG("initialize string mode\n");
-		configMode = OTHER_REQUEST;
-	}
-}
-
 /* Description  : Get Host OS type
  * Return value : type - u16
  *		- 0 : MAC PC
@@ -288,5 +269,5 @@ void set_config_mode(u16 w_length)
  */
 u16 get_host_os_type(void)
 {
-	return (stringMode || configMode);
+	return stringMode;
 }

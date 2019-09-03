@@ -31,5 +31,8 @@ $(src)/sha256-core.S_shipped: $(src)/sha256-armv4.pl
 
 .PRECIOUS: $(obj)/aesbs-core.S $(obj)/sha256-core.S
 
+aes-arm-y  := aes-armv4.o aes_glue.o
+sha1-arm-y := sha1-armv4-large.o sha1_glue.o
+
 #Keep this at the bottom
 obj-$(CONFIG_CRYPTO_FIPS) += last_file_asm.o

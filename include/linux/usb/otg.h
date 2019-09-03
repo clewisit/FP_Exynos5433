@@ -43,6 +43,7 @@ struct usb_otg {
 	u8			default_a;
 
 	struct usb_phy		*phy;
+	struct usb_phy		*phy3;
 	struct usb_bus		*host;
 	struct usb_gadget	*gadget;
 

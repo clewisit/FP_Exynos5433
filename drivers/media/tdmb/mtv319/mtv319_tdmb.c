@@ -1011,11 +1011,11 @@ INT rtvTDMB_ScanFrequency(U32 dwChFreqKHz)
 #endif
 
 		RTV_REG_MAP_SEL(OFDM_PAGE);
-		RTV_REG_MASK_SET(0x82, 0x02,0x02);
-		RTV_REG_MASK_SET(0x82, 0x02,0x00);
+                RTV_REG_MASK_SET(0x82, 0x02,0x02);
+                RTV_REG_MASK_SET(0x82, 0x02,0x00);
 
-		DAB_Mode = RTV_REG_GET(0xBA);
-		DAB_Mode = (DAB_Mode>>4) & 0x03;
+                DAB_Mode = RTV_REG_GET(0xBA);
+                DAB_Mode = (DAB_Mode>>4) & 0x03;
 
 		RTV_REG_MASK_SET(0x12, 0x80, 0x80);
 		RTV_REG_MASK_SET(0x12, 0x80, 0x00);
@@ -1189,7 +1189,7 @@ static INLINE INT tdmb_ReadFIC_I2C(U8 *pbBuf)
 	UINT timeout_cnt = RTV_TDMB_READ_FIC_TIMEOUT_CNT;
 
 	while (1) {
-		RTV_REG_MAP_SEL(FEC_PAGE);
+	RTV_REG_MAP_SEL(FEC_PAGE);
 		istatus = RTV_REG_GET(0x13) & 0x10; /* [4] */
 	#if 0
 		RTV_DBGMSG1("[tdmb_ReadFIC_I2C] istatus(0x%02X)\n", istatus);
@@ -1348,16 +1348,25 @@ static void tdmb_InitHOST(void)
 #endif
 
 #if defined(RTV_CHIP_PKG_CSP) && defined(RTV_FIC_I2C_INTR_ENABLED)
-RTV_DBGMSG2("[tdmb_InitHOST] 0x08(0x%02X), 0x1A(0x%02X)\n",
-RTV_REG_GET(0x08), RTV_REG_GET(0x1A));
+	RTV_DBGMSG2("[tdmb_InitHOST] 0x08(0x%02X), 0x1A(0x%02X)\n",
+		RTV_REG_GET(0x08), RTV_REG_GET(0x1A));
 
+#if defined(RTV_FIC_I2C_INTR_ENABLED)
 	RTV_REG_SET(0x04, 0x40);
 	RTV_REG_SET(0x1A, 0x08); /* GPD3 PAD disable */
 	RTV_REG_SET(0x08, (1<<5)|0x10); /* GPD3 => INT0 */
+#else
+	RTV_REG_SET(0x08, (3<<5)|0x10);
+#endif
 
 #else
-	RTV_REG_SET(0x08, 0x10);
+#if defined(RTV_FIC_I2C_INTR_ENABLED)
+	RTV_REG_SET(0x08, 0x10); /* INTR pin used */
+#else
+	RTV_REG_SET(0x08, 0x70); /* SYNC pin used */
 #endif
+#endif
+
 	RTV_REG_SET(0x09, 0x00);
 	RTV_REG_SET(0x10, 0xA0);
 	RTV_REG_SET(0x13, 0x04);

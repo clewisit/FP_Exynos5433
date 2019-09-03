@@ -7,10 +7,43 @@
 #include <linux/mm.h>
 #include <linux/types.h>
 #include <linux/highmem.h>
-#include <soc/qcom/scm.h>
+
+#if defined(CONFIG_SOC_EXYNOS5433) || defined(CONFIG_SOC_EXYNOS5430)
+#if defined(__GNUC__) && \
+	defined(__GNUC_MINOR__) && \
+	defined(__GNUC_PATCHLEVEL__) && \
+	((__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)) \
+	>= 40502
+#define MC_ARCH_EXTENSION_SEC
+#endif
+static inline u32 exynos_smc_verity(u32 cmd, u32 arg1, u32 arg2, u32 arg3)
+{
+	register u32 reg0 __asm__("r0") = cmd;
+	register u32 reg1 __asm__("r1") = arg1;
+	register u32 reg2 __asm__("r2") = arg2;
+	register u32 reg3 __asm__("r3") = arg3;
+
+	__asm__ volatile (
+#ifdef MC_ARCH_EXTENSION_SEC
+	/* This pseudo op is supported and required from
+	* binutils 2.21 on */
+	".arch_extension sec\n"
+#endif
+	"smc 0\n"
+	: "+r"(reg0), "+r"(reg1), "+r"(reg2), "+r"(reg3)
+
+	);
+	return reg1;
+}
+#endif
 
 static int verity_scm_call(void)
 {
+#if defined(CONFIG_SOC_EXYNOS5433) || defined(CONFIG_SOC_EXYNOS5430)
+#define	CMD_READ_SYSTEM_IMAGE_CHECK_STATUS 3
+	return exynos_smc_verity(0x83000006, CMD_READ_SYSTEM_IMAGE_CHECK_STATUS, 0, 0);
+#else
+	/* for QC */
 	int ret;
 	struct {
 		uint32_t cmd_id;
@@ -25,10 +58,13 @@ static int verity_scm_call(void)
 		return -1;
 	else
 		return rsp;
+#endif
 }
 
 #define DRIVER_DESC   "Read whether odin flash succeeded"
 
+
+#if 0
 ssize_t	dmverity_read(struct file *filep, char __user *buf, size_t size, loff_t *offset)
 {
 	uint32_t	odin_flag;
@@ -49,9 +85,27 @@ ssize_t	dmverity_read(struct file *filep, char __user *buf, size_t size, loff_t 
 	} else
 		return sizeof(uint32_t);
 }
+#endif
+
+static int dmverity_read(struct seq_file *m, void *v){
+	int odin_flag = 0;
+	unsigned char ret_buffer[10];
+	odin_flag = verity_scm_call();
+
+	memset(ret_buffer, 0, sizeof(ret_buffer));
+	snprintf(ret_buffer, sizeof(ret_buffer), "%08x\n", odin_flag);
+	seq_write(m, ret_buffer, sizeof(ret_buffer));
+	printk(KERN_INFO"dmverity: odin_flag: %x\n", odin_flag);
+	return 0;
+}
+static int dmverity_open(struct inode *inode, struct file *filep){
+	return single_open(filep, dmverity_read, NULL);
+}
 
 static const struct file_operations dmverity_proc_fops = {
-	.read		= dmverity_read,
+	.open       = dmverity_open,
+	.read	    = seq_read,
+	
 };
 
 /**

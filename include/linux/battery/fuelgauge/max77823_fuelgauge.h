@@ -2,7 +2,7 @@
  * max77823_fuelgauge.h
  * Samsung MAX77823 Fuel Gauge Header
  *
- * Copyright (C) 2014 Samsung Electronics, Inc.
+ * Copyright (C) 2012 Samsung Electronics, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -15,8 +15,8 @@
  *
  */
 
-#ifndef __MAX77823_FUELGAUGE_H
-#define __MAX77823_FUELGAUGE_H __FILE__
+#ifndef __MAX17050_FUELGAUGE_H
+#define __MAX17050_FUELGAUGE_H __FILE__
 
 #if defined(ANDROID_ALARM_ACTIVATED)
 #include <linux/android_alarm.h>
@@ -25,8 +25,11 @@
 #include <linux/mfd/core.h>
 #include <linux/mfd/max77823.h>
 #include <linux/mfd/max77823-private.h>
-
 #include <linux/regulator/machine.h>
+
+/* Slave address should be shifted to the right 1bit.
+ * R/W bit should NOT be included.
+ */
 
 #if defined(CONFIG_FUELGAUGE_MAX77823_VOLTAGE_TRACKING)
 #define MAX77823_REG_STATUS		0x00
@@ -45,48 +48,19 @@
 #define MAX77823_REG_RCOMP		0x38
 #define MAX77823_REG_VFOCV		0xFB
 #define MAX77823_REG_SOC_VF		0xFF
+
+struct battery_data_t {
+	u8 *type_str;
+};
+
+struct sec_fg_info {
+	bool dummy;
+};
+
 #endif
 
 #if defined(CONFIG_FUELGAUGE_MAX77823_COULOMB_COUNTING)
 #define PRINT_COUNT	10
-
-#define STATUS_REG				0x00
-#define VALRT_THRESHOLD_REG	0x01
-#define TALRT_THRESHOLD_REG	0x02
-#define SALRT_THRESHOLD_REG	0x03
-#define REMCAP_REP_REG			0x05
-#define SOCREP_REG				0x06
-#define TEMPERATURE_REG		0x08
-#define VCELL_REG				0x09
-#define CURRENT_REG				0x0A
-#define AVG_CURRENT_REG		0x0B
-#define SOCMIX_REG				0x0D
-#define SOCAV_REG				0x0E
-#define REMCAP_MIX_REG			0x0F
-#define FULLCAP_REG				0x10
-#define FULLSOCTHR_REG			0x13
-#define TIME_TO_EMPTY_REG		0x11
-#define FULLCAPREP_REG			0x35
-#define RFAST_REG				0x15
-#define AVR_TEMPERATURE_REG	0x16
-#define CYCLES_REG				0x17
-#define DESIGNCAP_REG			0x18
-#define AVR_VCELL_REG			0x19
-#define TIME_TO_FULL_REG		0x20
-#define CONFIG_REG				0x1D
-#define ICHGTERM_REG			0x1E
-#define REMCAP_AV_REG			0x1F
-#define FULLCAP_NOM_REG		0x23
-#define MISCCFG_REG				0x2B
-#define QRTABLE20_REG			0x32
-#define RCOMP_REG				0x38
-#define FSTAT_REG				0x3D
-#define QRTABLE30_REG			0x42
-#define DQACC_REG				0x45
-#define DPACC_REG				0x46
-#define OCV_REG					0xEE
-#define VFOCV_REG				0xFB
-#define VFSOC_REG				0xFF
 
 #define LOW_BATT_COMP_RANGE_NUM	5
 #define LOW_BATT_COMP_LEVEL_NUM	2
@@ -121,27 +95,15 @@ enum {
 };
 
 #define CURRENT_RANGE_MAX_NUM	5
-#define TEMP_RANGE_MAX_NUM	3
 
-struct max77823_fuelgauge_battery_data_t {
-	u8 rcomp0;
-	u8 rcomp_charging;
-	u16 QResidual20;
-	u16 QResidual30;
-	u16 Capacity;
-	u16 low_battery_comp_voltage;
+struct battery_data_t {
+	u32 Capacity;
+	u32 low_battery_comp_voltage;
 	s32 low_battery_table[CURRENT_RANGE_MAX_NUM][TABLE_MAX];
-	s32 temp_adjust_table[TEMP_RANGE_MAX_NUM][TABLE_MAX];
 	u8	*type_str;
-	u32 ichgterm;
-	u32 misccfg;
-	u32 fullsocthr;
-	u32 ichgterm_2nd;
-	u32 misccfg_2nd;
-	u32 fullsocthr_2nd;
 };
 
-struct max77823_fuelgauge_info {
+struct sec_fg_info {
 	/* test print count */
 	int pr_cnt;
 	/* full charge comp */
@@ -184,14 +146,14 @@ struct max77823_fuelgauge_info {
 #define STABLE_LOW_BATTERY_DIFF	30
 #define STABLE_LOW_BATTERY_DIFF_LOWBATT	10
 #define LOW_BATTERY_SOC_REDUCE_UNIT	10
+#endif
 
 struct max77823_fuelgauge_data {
 	struct device           *dev;
 	struct i2c_client       *i2c;
 	struct mutex            fuelgauge_mutex;
 	struct max77823_platform_data *max77823_pdata;
-	sec_fuelgauge_platform_data_t *pdata;
-	struct max77823_fuelgauge_battery_data_t *battery_data;
+	sec_battery_platform_data_t *pdata;
 	struct power_supply		psy_fg;
 	struct delayed_work isr_work;
 
@@ -202,7 +164,8 @@ struct max77823_fuelgauge_data {
 	 * used in individual fuel gauge file only
 	 * (ex. dummy_fuelgauge.c)
 	 */
-	struct max77823_fuelgauge_info info;
+	struct sec_fg_info	info;
+	struct battery_data_t        *battery_data;
 
 	bool is_fuel_alerted;
 	struct wake_lock fuel_alert_wake_lock;
@@ -217,9 +180,7 @@ struct max77823_fuelgauge_data {
 	int reg_addr;
 	u8 reg_data[2];
 
-	unsigned int pre_soc;
-
 	int fg_irq;
 };
-#endif
+
 #endif /* __MAX77823_FUELGAUGE_H */

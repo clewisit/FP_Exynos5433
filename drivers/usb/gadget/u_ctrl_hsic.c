@@ -96,7 +96,7 @@ static int ghsic_ctrl_receive(void *dev, void *buf, size_t actual)
 
 	return retval;
 }
-
+#if 0
 static int
 ghsic_send_cpkt_tomodem(u8 portno, void *buf, size_t len)
 {
@@ -140,7 +140,7 @@ ghsic_send_cpkt_tomodem(u8 portno, void *buf, size_t len)
 
 	return 0;
 }
-
+#endif
 static void
 ghsic_send_cbits_tomodem(void *gptr, u8 portno, int cbits)
 {
@@ -173,7 +173,7 @@ ghsic_send_cbits_tomodem(void *gptr, u8 portno, int cbits)
 static void ghsic_ctrl_connect_w(struct work_struct *w)
 {
 	struct gserial		*gser = NULL;
-	struct grmnet		*gr = NULL;
+//	struct grmnet		*gr = NULL;
 	struct gctrl_port	*port =
 			container_of(w, struct gctrl_port, connect_w);
 	unsigned long		flags;
@@ -207,24 +207,25 @@ static void ghsic_ctrl_connect_w(struct work_struct *w)
 	cbits = ctrl_bridge_get_cbits_tohost(port->brdg.ch_id);
 
 	if (port->gtype == USB_GADGET_SERIAL && (cbits & ACM_CTRL_DCD)) {
-		gser = port->port_usb;
+		gser = (struct gserial *)(port->port_usb);
 		if (gser && gser->connect)
 			gser->connect(gser);
 		return;
 	}
-
+#if 0
 	if (port->gtype == USB_GADGET_RMNET) {
-		gr = port->port_usb;
+		gr =(struct grmnet*) (port->port_usb);
 		if (gr && gr->connect)
 			gr->connect(gr);
 	}
+#endif	
 }
 
 int ghsic_ctrl_connect(void *gptr, int port_num)
 {
 	struct gctrl_port	*port;
 	struct gserial		*gser;
-	struct grmnet		*gr;
+//	struct grmnet		*gr;
 	unsigned long		flags;
 
 	pr_debug("%s: port#%d\n", __func__, port_num);
@@ -245,14 +246,14 @@ int ghsic_ctrl_connect(void *gptr, int port_num)
 		gser = gptr;
 		gser->notify_modem = ghsic_send_cbits_tomodem;
 	}
-
+#if 0
 	if (port->gtype == USB_GADGET_RMNET) {
-		gr = gptr;
+		gr = (struct grmnet	*)gptr;
 		port->send_cpkt_response = gr->send_cpkt_response;
 		gr->send_encap_cmd = ghsic_send_cpkt_tomodem;
 		gr->notify_modem = ghsic_send_cbits_tomodem;
 	}
-
+#endif
 	port->port_usb = gptr;
 	port->to_host = 0;
 	port->to_modem = 0;
@@ -281,7 +282,7 @@ void ghsic_ctrl_disconnect(void *gptr, int port_num)
 {
 	struct gctrl_port	*port;
 	struct gserial		*gser = NULL;
-	struct grmnet		*gr = NULL;
+//	struct grmnet		*gr = NULL;
 	unsigned long		flags;
 
 	pr_debug("%s: port#%d\n", __func__, port_num);
@@ -299,16 +300,18 @@ void ghsic_ctrl_disconnect(void *gptr, int port_num)
 	}
 
 	if (port->gtype == USB_GADGET_SERIAL)
-		gser = gptr;
+		gser = (struct gserial *)gptr;
+#if 0
 	 else
-		gr = gptr;
-
+		gr = (struct grmnet *)gptr;
+#endif
 	spin_lock_irqsave(&port->port_lock, flags);
+#if 0
 	if (gr) {
 		gr->send_encap_cmd = 0;
 		gr->notify_modem = 0;
 	}
-
+#endif
 	if (gser)
 		gser->notify_modem = 0;
 	port->cbits_tomodem = 0;
@@ -384,7 +387,7 @@ static int ghsic_ctrl_remove(struct platform_device *pdev)
 {
 	struct gctrl_port	*port;
 	struct gserial		*gser = NULL;
-	struct grmnet		*gr = NULL;
+	//struct grmnet		*gr = NULL;
 	unsigned long		flags;
 	int			id;
 
@@ -406,15 +409,16 @@ static int ghsic_ctrl_remove(struct platform_device *pdev)
 
 	if (port->gtype == USB_GADGET_SERIAL)
 		gser = port->port_usb;
+#if 0	
 	else
 		gr = port->port_usb;
-
+#endif
 	port->cbits_tohost = 0;
 	spin_unlock_irqrestore(&port->port_lock, flags);
-
+#if 0
 	if (gr && gr->disconnect)
 		gr->disconnect(gr);
-
+#endif
 	if (gser && gser->disconnect)
 		gser->disconnect(gser);
 

@@ -13,6 +13,7 @@
 #define ESOC_SET_CRASH		_IOW(ESOC_CODE, 9, u32)
 #define ESOC_GET_CRASH		_IOR(ESOC_CODE, 10, u32)
 #define ESOC_SECURE_FAIL	_IO(ESOC_CODE, 11)
+#define ESOC_SET_HSIC_READY	_IO(ESOC_CODE, 12)
 
 /*Link types for communication with external SOCs*/
 #define HSIC		"HSIC"
@@ -53,8 +54,6 @@ enum esoc_notify {
 	ESOC_DEBUG_FAIL,
 	ESOC_PRIMARY_CRASH,
 	ESOC_PRIMARY_REBOOT,
-	ESOC_FORCE_CPCRASH,
-	ESOC_DIAG_DISABLE,
 };
 
 enum esoc_req {
@@ -77,3 +76,4 @@ struct esoc_handle {
 };
 #endif
 #endif
+

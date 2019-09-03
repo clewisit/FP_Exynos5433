@@ -18,7 +18,7 @@
 *      Notwithstanding the above, under no circumstances may you combine this
 * software in any way with any other Broadcom software provided under a license
 * other than the GPL, without Broadcom's express prior written consent.
-* $Id: wlfc_proto.h 455301 2014-02-13 12:42:13Z $
+* $Id: wlfc_proto.h 587005 2015-09-17 11:26:26Z $
 *
 */
 #ifndef __wlfc_proto_definitions_h__
@@ -98,9 +98,6 @@
 
 #define WLFC_CTL_TYPE_TRANS_ID			18
 #define WLFC_CTL_TYPE_COMP_TXSTATUS		19
-
-#define WLFC_CTL_TYPE_TID_OPEN			20
-#define WLFC_CTL_TYPE_TID_CLOSE			21
 
 
 #define WLFC_CTL_TYPE_FILLER			255
@@ -238,6 +235,8 @@
 #define WLFC_CTL_PKTFLAG_TOSSED_BYWLC	3
 /* Firmware tossed after retries */
 #define WLFC_CTL_PKTFLAG_DISCARD_NOACK	4
+/* Firmware wrongly reported suppressed previously,now fixing to acked */
+#define WLFC_CTL_PKTFLAG_SUPPRESS_ACKED	5
 
 #define WLFC_D11_STATUS_INTERPRET(txs)	\
 	(((txs)->status.suppr_ind !=  TX_STATUS_SUPR_NONE) ? \

@@ -93,7 +93,7 @@ extern "C"{
 /*============================================================================
 * Defines the Host interface.
 *===========================================================================*/
-//#define RTV_IF_SPI /* AP: SPI Master Mode */
+/* #define RTV_IF_SPI */ /* AP: SPI Master Mode */
 #define RTV_IF_TSIF /* I2C + TSIF Master Mode*/
 /* #define RTV_IF_SPI_SLAVE */ /* AP: SPI Slave Mode*/
 
@@ -228,7 +228,7 @@ extern "C"{
 	/*=================================================================
 	* Defines the register I/O macros.
 	*================================================================*/
-	void mtv319_set_port_if(unsigned long interface);
+	void mtv319_set_port_if(unsigned long interface);	
 	U8 mtv319_spi_read(U8 page, U8 reg);
 	void mtv319_spi_read_burst(U8 page, U8 reg, U8 *buf, int size);
 	void mtv319_spi_write(U8 page, U8 reg, U8 val);
@@ -269,7 +269,7 @@ extern "C"{
 	* Defines the TS format.
 	*================================================================*/
 	/* #define RTV_TSIF_FORMAT_0 */ /* EN_high, CLK_rising */
-	/*#define RTV_TSIF_FORMAT_1 */ /* EN_high, CLK_falling */
+	/* #define RTV_TSIF_FORMAT_1 */ /* EN_high, CLK_falling */
 	/* #define RTV_TSIF_FORMAT_2 */ /* EN_low, CLK_rising */
 	/* #define RTV_TSIF_FORMAT_3 */ /* EN_low, CLK_falling */
 	#define RTV_TSIF_FORMAT_4 /* EN_high, CLK_rising + 1CLK add */
@@ -420,33 +420,26 @@ extern "C"{
 # Defines the critical object and macros.
 #
 ############################################################################*/
-#if defined(RTV_IF_SPI) || defined(RTV_IF_EBI2)\
-|| defined(RTV_FIC_I2C_INTR_ENABLED)
-    #if defined(__KERNEL__)
-	extern struct mutex raontv_guard;
-	#define RTV_GUARD_INIT		mutex_init(&raontv_guard)
-	#define RTV_GUARD_LOCK		mutex_lock(&raontv_guard)
-	#define RTV_GUARD_FREE		mutex_unlock(&raontv_guard)
-	#define RTV_GUARD_DEINIT	((void)0)
+#if defined(__KERNEL__)
+extern struct mutex raontv_guard;
+#define RTV_GUARD_INIT		mutex_init(&raontv_guard)
+#define RTV_GUARD_LOCK		mutex_lock(&raontv_guard)
+#define RTV_GUARD_FREE		mutex_unlock(&raontv_guard)
+#define RTV_GUARD_DEINIT	((void)0)
 
-    #elif defined(WINCE) || defined(WINDOWS) || defined(WIN32)
-	extern CRITICAL_SECTION		raontv_guard;
-	#define RTV_GUARD_INIT		InitializeCriticalSection(&raontv_guard)
-	#define RTV_GUARD_LOCK		EnterCriticalSection(&raontv_guard)
-	#define RTV_GUARD_FREE		LeaveCriticalSection(&raontv_guard)
-	#define RTV_GUARD_DEINIT	DeleteCriticalSection(&raontv_guard)
-    #else
-	/* temp: TODO */
-	#define RTV_GUARD_INIT		((void)0)
-	#define RTV_GUARD_LOCK		((void)0)
-	#define RTV_GUARD_FREE		((void)0)
-	#define RTV_GUARD_DEINIT	((void)0)
-    #endif
+#elif defined(WINCE) || defined(WINDOWS) || defined(WIN32)
+extern CRITICAL_SECTION		raontv_guard;
+#define RTV_GUARD_INIT		InitializeCriticalSection(&raontv_guard)
+#define RTV_GUARD_LOCK		EnterCriticalSection(&raontv_guard)
+#define RTV_GUARD_FREE		LeaveCriticalSection(&raontv_guard)
+#define RTV_GUARD_DEINIT	DeleteCriticalSection(&raontv_guard)
+
 #else
-	#define RTV_GUARD_INIT		((void)0)
-	#define RTV_GUARD_LOCK		((void)0)
-	#define RTV_GUARD_FREE		((void)0)
-	#define RTV_GUARD_DEINIT	((void)0)
+/* temp: TODO */
+#define RTV_GUARD_INIT		((void)0)
+#define RTV_GUARD_LOCK		((void)0)
+#define RTV_GUARD_FREE		((void)0)
+#define RTV_GUARD_DEINIT	((void)0)
 #endif
 
 

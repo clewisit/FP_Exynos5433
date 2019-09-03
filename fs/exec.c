@@ -1109,7 +1109,8 @@ int flush_old_exec(struct linux_binprm * bprm)
 	if (retval)
 		goto out;
 #ifdef CONFIG_TIMA_RKP_RO_CRED
-	tima_send_cmd2((unsigned int)current_cred(), (unsigned int)bprm->mm->pgd, 0x3f843221);
+	if(rkp_cred_enable)
+	tima_send_cmd2((unsigned int)current_cred(), (unsigned int)bprm->mm->pgd, 0x43);
 #endif /*CONFIG_TIMA_RKP_RO_CRED*/
 
 	bprm->mm = NULL;		/* We're using it now */
@@ -1505,7 +1506,6 @@ int search_binary_handler(struct linux_binprm *bprm)
 }
 
 EXPORT_SYMBOL(search_binary_handler);
-
 
 #if defined CONFIG_SEC_RESTRICT_FORK
 #if defined CONFIG_SEC_RESTRICT_ROOTING_LOG

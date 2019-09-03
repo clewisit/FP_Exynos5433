@@ -25,6 +25,9 @@
 #include <linux/async.h>
 #include <linux/pm_runtime.h>
 #include <linux/pinctrl/devinfo.h>
+#ifdef CONFIG_MULTITHREAD_PROBE
+#include <linux/slab.h>
+#endif
 
 #include "base.h"
 #include "power/power.h"
@@ -75,6 +78,8 @@ static void deferred_probe_work_func(struct work_struct *work)
 	 */
 	mutex_lock(&deferred_probe_mutex);
 	while (!list_empty(&deferred_probe_active_list)) {
+		ktime_t calltime, delta, rettime;
+		unsigned long long duration;
 		private = list_first_entry(&deferred_probe_active_list,
 					typeof(*dev->p), deferred_probe);
 		dev = private->device;
@@ -99,7 +104,17 @@ static void deferred_probe_work_func(struct work_struct *work)
 		device_pm_unlock();
 
 		dev_dbg(dev, "Retrying from deferred list\n");
+		if (initcall_debug) {
+			dev_info(dev, "deferred probing\n");
+			calltime = ktime_get();
+		}
 		bus_probe_device(dev);
+		if (initcall_debug) {
+			rettime = ktime_get();
+			delta = ktime_sub(rettime, calltime);
+			duration = (unsigned long long) ktime_to_ns(delta) >> 10;
+			dev_info(dev, "deferred probing returned after %lld usecs\n", duration);
+		}
 
 		mutex_lock(&deferred_probe_mutex);
 
@@ -298,8 +313,21 @@ EXPORT_SYMBOL_GPL(device_bind_driver);
 static atomic_t probe_count = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(probe_waitqueue);
 
+#ifdef CONFIG_MULTITHREAD_PROBE
+struct probe_data {
+	struct device_driver *drv;
+	struct device *dev;
+};
+
+static int really_probe(void *void_data)
+{
+	struct probe_data *data = void_data;
+	struct device_driver *drv = data->drv;
+	struct device *dev = data->dev;
+#else
 static int really_probe(struct device *dev, struct device_driver *drv)
 {
+#endif
 	int ret = 0;
 	int local_trigger_count = atomic_read(&deferred_trigger_count);
 
@@ -312,6 +340,7 @@ static int really_probe(struct device *dev, struct device_driver *drv)
 
 	/* If using pinctrl, bind pins now before probing */
 	ret = pinctrl_bind_pins(dev);
+
 	if (ret)
 		goto probe_failed;
 
@@ -367,6 +396,9 @@ probe_failed:
 done:
 	atomic_dec(&probe_count);
 	wake_up(&probe_waitqueue);
+#ifdef CONFIG_MULTITHREAD_PROBE
+	kfree(data);
+#endif
 	return ret;
 }
 
@@ -412,6 +444,9 @@ EXPORT_SYMBOL_GPL(wait_for_device_probe);
  */
 int driver_probe_device(struct device_driver *drv, struct device *dev)
 {
+#ifdef CONFIG_MULTITHREAD_PROBE
+	struct probe_data *data;
+#endif
 	int ret = 0;
 
 	if (!device_is_registered(dev))
@@ -420,11 +455,27 @@ int driver_probe_device(struct device_driver *drv, struct device *dev)
 	pr_debug("bus: '%s': %s: matched device %s with driver %s\n",
 		 drv->bus->name, __func__, dev_name(dev), drv->name);
 
-	if (dev->parent)
-		pm_runtime_get_sync(dev->parent);
+#ifdef CONFIG_MULTITHREAD_PROBE
+	data = kmalloc(sizeof(*data), GFP_KERNEL);
+	data->drv = drv;
+	data->dev = dev;
+#endif
 
 	pm_runtime_barrier(dev);
+
+#ifdef CONFIG_MULTITHREAD_PROBE
+	if (drv->multithread_probe) {
+		struct task_struct *probe_task;
+		probe_task = kthread_run(really_probe, data,
+					 "probe-%s", dev_name(dev));
+		if (IS_ERR(probe_task))
+			ret = PTR_ERR(probe_task);
+	} else
+		ret = really_probe(data);
+#else
 	ret = really_probe(dev, drv);
+#endif
+
 	pm_request_idle(dev);
 
 	if (dev->parent)

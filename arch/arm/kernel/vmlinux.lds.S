@@ -11,7 +11,7 @@
 #ifdef CONFIG_STRICT_MEMORY_RWX
 #include <asm/pgtable.h>
 #endif
-
+	
 #define PROC_INFO							\
 	. = ALIGN(4);							\
 	VMLINUX_SYMBOL(__proc_info_begin) = .;				\
@@ -122,6 +122,12 @@ SECTIONS
 		*(.got)			/* Global offset table		*/
 			ARM_CPU_KEEP(PROC_INFO)
 	}
+#ifdef CONFIG_RKP_TEST_INFRA
+	_end_stext = .;			/* End of text */
+#endif /*CONFIG_RKP_TEST_INFRA*/
+#ifdef CONFIG_STRICT_MEMORY_RWX
+	. = ALIGN(1<<SECTION_SHIFT);
+#endif
 
 #ifdef CONFIG_STRICT_MEMORY_RWX
 	. = ALIGN(1<<SECTION_SHIFT);
@@ -156,6 +162,7 @@ SECTIONS
 
 	NOTES
 
+	. = ALIGN(PAGE_SIZE);
 	_etext = .;			/* End of text and rodata section */
 
 #ifndef CONFIG_XIP_KERNEL
@@ -228,6 +235,10 @@ SECTIONS
 		INIT_RAM_FS
 	}
 #ifndef CONFIG_XIP_KERNEL
+#ifdef CONFIG_STRICT_MEMORY_RWX
+	. = ALIGN(1<<SECTION_SHIFT);
+#endif
+	__init_data = .;
 	.exit.data : {
 		ARM_EXIT_KEEP(EXIT_DATA)
 	}
@@ -291,6 +302,13 @@ SECTIONS
 	}
 	. = ALIGN(1<<PAGE_SHIFT);
 #endif /* TIMA_RKP_RO_CRED */
+
+#ifdef CONFIG_RKP_DBLMAP_PROT
+	.rkp.bitmap : {
+		rkp_double_bitmap = .;
+		. = rkp_double_bitmap + 0x18000;
+	}
+#endif
 
 #ifdef CONFIG_HAVE_TCM
         /*

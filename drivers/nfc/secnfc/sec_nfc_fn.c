@@ -18,8 +18,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
-#define DEBUG
-
 #include <linux/wait.h>
 #include <linux/delay.h>
 
@@ -35,10 +33,9 @@
 #include <linux/gpio.h>
 #include <linux/slab.h>
 #include <linux/fs.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/nfc/sec_nfc.h>
 #include <linux/of_gpio.h>
-#include <mach/tlte_felica_gpio.h>
 
 #include <linux/wakelock.h>
 
@@ -66,17 +63,16 @@ static irqreturn_t sec_nfc_fn_push_thread_fn(int irq, void *dev_id)
 	struct sec_nfc_fn_info *info = dev_id;
 
 	dev_dbg(info->dev, "PUSH\n");
-    
+
 	mutex_lock(&info->push_mutex);
 	info->push_irq = PUSH_ON;
 	mutex_unlock(&info->push_mutex);
 
 	wake_up_interruptible(&info->push_wait);
 
-	if(!wake_lock_active(&info->wake_lock))
-	{
+	if (!wake_lock_active(&info->wake_lock)) {
 		pr_err("\n %s: Set wake_lock_timeout for 2 sec. !!!\n", __func__);
-		wake_lock_timeout(&info->wake_lock, 2 * HZ);		
+		wake_lock_timeout(&info->wake_lock, 2 * HZ);
 	}
 
 	return IRQ_HANDLED;
@@ -111,9 +107,9 @@ static long sec_nfc_fn_ioctl(struct file *file, unsigned int cmd,
 	struct sec_nfc_fn_info *info = container_of(file->private_data,
 						struct sec_nfc_fn_info, miscdev);
 
-        void __user *argp = (void __user *)arg;
+	void __user *argp = (void __user *)arg;
 	int ret = 0;
-        int state = 0;
+	int state = 0;
 
 	dev_dbg(info->dev, "%s: info: %p, cmd: 0x%x\n",
 			__func__, info, cmd);
@@ -121,9 +117,10 @@ static long sec_nfc_fn_ioctl(struct file *file, unsigned int cmd,
 	switch (cmd) {
 	case SEC_NFC_GET_PUSH:
 		mutex_lock(&info->push_mutex);
-        state = gpio_get_value(of_get_named_gpio(info->dev->of_node, "sec-nfc-fn,int-gpio", 0));
+		state = gpio_get_value(of_get_named_gpio(info->dev->of_node,
+									"sec-nfc-fn,int-gpio", 0));
 
-        pr_info("%s: copy push pin value - state : %d\n", __func__, state);
+		pr_info("%s: copy push pin value-state :%d\n", __func__, state);
 		if (copy_to_user(argp, &state,
 			sizeof(state)) != 0) {
 			dev_err(info->dev, "copy failed to user\n");
@@ -151,7 +148,6 @@ static int sec_nfc_fn_parse_dt(struct device *dev,
 	return 0;
 }
 
-
 static int sec_nfc_fn_open(struct inode *inode, struct file *file)
 {
 	struct sec_nfc_fn_info *info = container_of(file->private_data,
@@ -160,10 +156,11 @@ static int sec_nfc_fn_open(struct inode *inode, struct file *file)
 	uid_t uid;
 
 	dev_dbg(info->dev, "%s: info : %p" , __func__, info);
-	
+
 	uid = __task_cred(current)->uid;
 	if (g_secnfc_uid != uid) {
-		dev_err(info->dev, "%s: Un-authorized process. No access to device\n", __func__);
+		dev_err(info->dev, "%s:Un-authorized process.Access denied\n",
+				__func__);
 		return -EPERM;
 	}
 
@@ -198,15 +195,18 @@ static const struct file_operations sec_nfc_fn_fops = {
 	.open		= sec_nfc_fn_open,
 	.release	= sec_nfc_fn_close,
 	.unlocked_ioctl	= sec_nfc_fn_ioctl,
+#ifdef CONFIG_COMPAT
+        .compat_ioctl = sec_nfc_fn_ioctl,
+#endif
 };
 
 #ifdef CONFIG_PM
 static int sec_nfc_fn_suspend(struct device *dev)
 {
-//	struct sec_nfc_fn_platform_data *pdata = dev->platform_data;
+/*	struct sec_nfc_fn_platform_data *pdata = dev->platform_data;	*/
 	struct sec_nfc_fn_info *info = dev_get_drvdata(dev);
 
-	//pdata->cfg_gpio();
+/*	pdata->cfg_gpio();	*/
 
 	mutex_lock(&info->confirm_mutex);
 	info->readable = RDABLE_NO;
@@ -217,34 +217,33 @@ static int sec_nfc_fn_suspend(struct device *dev)
 
 static int sec_nfc_fn_resume(struct device *dev)
 {
-	//struct sec_nfc_fn_platform_data *pdata = dev->platform_data;
-
-	//pdata->cfg_gpio();
-
+/*	struct sec_nfc_fn_platform_data *pdata = dev->platform_data;	*/
+/*	pdata->cfg_gpio();	*/
 	return 0;
 }
 
-static SIMPLE_DEV_PM_OPS(sec_nfc_fn_pm_ops, sec_nfc_fn_suspend, sec_nfc_fn_resume);
+static SIMPLE_DEV_PM_OPS(sec_nfc_fn_pm_ops, sec_nfc_fn_suspend,
+							sec_nfc_fn_resume);
 #endif
 
 static int sec_nfc_fn_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct sec_nfc_fn_info *info;
-	//struct sec_nfc_fn_platform_data *pdata = dev->platform_data;
+/*	struct sec_nfc_fn_platform_data *pdata = dev->platform_data;	*/
 	struct sec_nfc_fn_platform_data *pdata;
+
 	int ret = 0;
 	int err;
 
-	printk("sec-nfc-fn probe start\n");
+	pr_info("sec-nfc-fn probe start\n");
 
-    // Check tamper
-    if (check_custom_kernel() == 1)
-    {
-        pr_info("%s: The kernel is tampered. Couldn't initialize NFC. \n", __func__);
-    }
+	/*	Check tamper	*/
+	if (check_custom_kernel() == 1)
+		pr_info("%s: The kernel is tampered. Couldn't initialize NFC.\n",
+			__func__);
 
-	if(dev) {
+	if (dev) {
 		pr_info("%s: alloc for fn platform data\n", __func__);
 		pdata = kzalloc(sizeof(struct sec_nfc_fn_platform_data), GFP_KERNEL);
 
@@ -253,12 +252,13 @@ static int sec_nfc_fn_probe(struct platform_device *pdev)
 			ret = -ENOMEM;
 			goto err_pdata;
 		}
-	} 
-	else {
+	} else {
+		pdata = NULL;
 		pr_info("%s: failed alloc platform data", __func__);
 	}
 
 	err = sec_nfc_fn_parse_dt(dev, pdata);
+
 
 	info = kzalloc(sizeof(struct sec_nfc_fn_info), GFP_KERNEL);
 	if (!info) {
@@ -267,23 +267,26 @@ static int sec_nfc_fn_probe(struct platform_device *pdev)
 		kfree(pdata);
 		goto err_info_alloc;
 	}
+
 	info->dev = dev;
 	info->pdata = pdata;
 
 	dev_set_drvdata(dev, info);
 
-	//pdata->cfg_gpio();
+	/*	pdata->cfg_gpio();	*/
+
+	wake_lock_init(&info->wake_lock, WAKE_LOCK_SUSPEND, "NFCWAKE_FN");
 
 	mutex_init(&info->push_mutex);
 	mutex_init(&info->confirm_mutex);
 	init_waitqueue_head(&info->push_wait);
 	info->push_irq = PUSH_NONE;
 
-	//ret = request_threaded_irq(pdata->push, NULL, sec_nfc_fn_push_thread_fn,
-	ret = request_threaded_irq(gpio_to_irq(pdata->push), NULL, sec_nfc_fn_push_thread_fn,
+	ret = request_threaded_irq(gpio_to_irq(pdata->push), NULL,
+			sec_nfc_fn_push_thread_fn,
 			IRQF_TRIGGER_RISING | IRQF_ONESHOT, SEC_NFC_FN_DRIVER_NAME,
 			info);
-	if (ret < 0 ) {
+	if (ret < 0) {
 		dev_err(dev, "failed to register PUSH handler\n");
 		goto err_push_req;
 	}
@@ -295,8 +298,6 @@ static int sec_nfc_fn_probe(struct platform_device *pdev)
 		goto err_push_wake;
 	}
 
-	wake_lock_init(&info->wake_lock, WAKE_LOCK_SUSPEND, "NFCWAKE_FN");
-
 	info->miscdev.minor = MISC_DYNAMIC_MINOR;
 	info->miscdev.name = SEC_NFC_FN_DRIVER_NAME;
 	info->miscdev.fops = &sec_nfc_fn_fops;
@@ -307,7 +308,7 @@ static int sec_nfc_fn_probe(struct platform_device *pdev)
 		goto err_dev_reg;
 	}
 
-	printk("sec-nfc-fn probe finish\n");
+	pr_info("sec-nfc-fn probe finish\n");
 
 	return 0;
 
@@ -318,7 +319,6 @@ err_info_alloc:
 	wake_lock_destroy(&info->wake_lock);
 	kfree(info);
 err_pdata:
-
 	return ret;
 }
 
@@ -367,3 +367,4 @@ module_platform_driver(sec_nfc_fn_driver);
 
 MODULE_DESCRIPTION("Samsung sec_nfc_fn driver");
 MODULE_LICENSE("GPL");
+

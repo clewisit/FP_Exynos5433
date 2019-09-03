@@ -135,7 +135,7 @@ static int _get_more_prng_bytes(struct prng_context *ctx, int cont_test)
 			 * random data that we did last time around through this
 			 */
 #if FIPS_FUNC_TEST == 5
-            memcpy(ctx->rand_data, ctx->last_rand_data, DEFAULT_BLK_SZ);
+            		memcpy(ctx->rand_data, ctx->last_rand_data, DEFAULT_BLK_SZ);
 #endif
 			if (!memcmp(ctx->rand_data, ctx->last_rand_data,
 					DEFAULT_BLK_SZ)) {
@@ -143,7 +143,8 @@ static int _get_more_prng_bytes(struct prng_context *ctx, int cont_test)
 #ifdef CONFIG_CRYPTO_FIPS
 					set_in_fips_err();
 #else
-					panic("cprng %p Failed repetition check!\n", ctx);					
+					panic("cprng %p Failed repetition check!\n",
+						ctx);
 #endif
 				}
 
@@ -423,10 +424,8 @@ static int fips_cprng_get_random(struct crypto_rng *tfm, u8 *rdata,
 {
 	struct prng_context *prng = crypto_rng_ctx(tfm);
 
-#ifdef CONFIG_CRYPTO_FIPS
 	if (unlikely(in_fips_err()))
 		return -EINVAL;
-#endif
 
 	return get_prng_bytes(rdata, dlen, prng, 1);
 }

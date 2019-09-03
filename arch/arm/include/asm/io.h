@@ -27,7 +27,7 @@
 #include <asm/byteorder.h>
 #include <asm/memory.h>
 #include <asm-generic/pci_iomap.h>
-#include <linux/msm_rtb.h>
+#include <mach/exynos-ss.h>
 
 /*
  * ISA I/O bus memory addresses are 1:1 with the physical address.
@@ -64,33 +64,41 @@ extern void __raw_readsl(const void __iomem *addr, void *data, int longlen);
  */
 static inline void __raw_writew_no_log(u16 val, volatile void __iomem *addr)
 {
+	exynos_ss_reg(0, (unsigned int)val, (unsigned int)addr, ESS_FLAG_IN);
 	asm volatile("strh %1, %0"
 		     : "+Q" (*(volatile u16 __force *)addr)
 		     : "r" (val));
+	exynos_ss_reg(0, (unsigned int)val, (unsigned int)addr, ESS_FLAG_OUT);
 }
 
 static inline u16 __raw_readw_no_log(const volatile void __iomem *addr)
 {
 	u16 val;
+	exynos_ss_reg(1, 0, (unsigned int)addr, ESS_FLAG_IN);
 	asm volatile("ldrh %1, %0"
 		     : "+Q" (*(volatile u16 __force *)addr),
 		       "=r" (val));
+	exynos_ss_reg(1, (unsigned int)val, (unsigned int)addr, ESS_FLAG_OUT);
 	return val;
 }
 #endif
 
 static inline void __raw_writeb_no_log(u8 val, volatile void __iomem *addr)
 {
+	exynos_ss_reg(0, (unsigned int)val, (unsigned int)addr, ESS_FLAG_IN);
 	asm volatile("strb %1, %0"
 		     : "+Qo" (*(volatile u8 __force *)addr)
 		     : "r" (val));
+	exynos_ss_reg(0, (unsigned int)val, (unsigned int)addr, ESS_FLAG_OUT);
 }
 
 static inline void __raw_writel_no_log(u32 val, volatile void __iomem *addr)
 {
+	exynos_ss_reg(0, (unsigned int)val, (unsigned int)addr, ESS_FLAG_IN);
 	asm volatile("str %1, %0"
 		     : "+Qo" (*(volatile u32 __force *)addr)
 		     : "r" (val));
+	exynos_ss_reg(0, (unsigned int)val, (unsigned int)addr, ESS_FLAG_OUT);
 }
 
 static inline void __raw_writeq_no_log(u64 val, volatile void __iomem *addr)
@@ -107,18 +115,22 @@ static inline void __raw_writeq_no_log(u64 val, volatile void __iomem *addr)
 static inline u8 __raw_readb_no_log(const volatile void __iomem *addr)
 {
 	u8 val;
+	exynos_ss_reg(1, 0, (unsigned int)addr, ESS_FLAG_IN);
 	asm volatile("ldrb %1, %0"
 		     : "+Qo" (*(volatile u8 __force *)addr),
 		       "=r" (val));
+	exynos_ss_reg(1, (unsigned int)val, (unsigned int)addr, ESS_FLAG_IN);
 	return val;
 }
 
 static inline u32 __raw_readl_no_log(const volatile void __iomem *addr)
 {
 	u32 val;
+	exynos_ss_reg(1, 0, (unsigned int)addr, ESS_FLAG_IN);
 	asm volatile("ldr %1, %0"
 		     : "+Qo" (*(volatile u32 __force *)addr),
 		       "=r" (val));
+	exynos_ss_reg(1, (unsigned int)val, (unsigned int)addr, ESS_FLAG_OUT);
 	return val;
 }
 

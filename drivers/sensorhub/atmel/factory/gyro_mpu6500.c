@@ -21,32 +21,54 @@
 
 #define VENDOR		"INVENSENSE"
 #define CHIP_ID		"MPU6500"
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+#define VENDOR_BMI058		"BOSCH"
+#define CHIP_ID_BMI058		"BMI058"
 
-#define CALIBRATION_FILE_PATH		"/efs/gyro_cal_data"
-#define CALIBRATION_DATA_AMOUNT		20
-#define SELFTEST_DATA_AMOUNT		64
-#define SELFTEST_LIMITATION_OF_ERROR	5250
+#define SELFTEST_LIMITATION_OF_ERROR       5250
+#endif
 
+#define CALIBRATION_FILE_PATH	"/efs/gyro_cal_data"
 #define VERBOSE_OUT 1
-#define DEF_GYRO_FULLSCALE		2000
-#define DEF_GYRO_SENS			(32768 / DEF_GYRO_FULLSCALE)
+#define CALIBRATION_DATA_AMOUNT	20
+#define DEF_GYRO_FULLSCALE	2000
+#define DEF_GYRO_SENS	(32768 / DEF_GYRO_FULLSCALE)
+#define DEF_BIAS_LSB_THRESH_SELF	(20 * DEF_GYRO_SENS)
 #define DEF_BIAS_LSB_THRESH_SELF_6500	(30 * DEF_GYRO_SENS)
-#define DEF_RMS_LSB_TH_SELF		(5 * DEF_GYRO_SENS)
-#define DEF_RMS_THRESH		((DEF_RMS_LSB_TH_SELF) * (DEF_RMS_LSB_TH_SELF))
-#define DEF_SCALE_FOR_FLOAT		(1000)
-#define DEF_RMS_SCALE_FOR_RMS		(10000)
-#define DEF_SQRT_SCALE_FOR_RMS		(100)
+#define DEF_RMS_LSB_TH_SELF (5 * DEF_GYRO_SENS)
+#define DEF_RMS_THRESH	((DEF_RMS_LSB_TH_SELF) * (DEF_RMS_LSB_TH_SELF))
+#define DEF_SCALE_FOR_FLOAT (1000)
+#define DEF_RMS_SCALE_FOR_RMS (10000)
+#define DEF_SQRT_SCALE_FOR_RMS (100)
 
 static ssize_t gyro_vendor_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	if (data->ap_rev < MPU6500_REV)
+		return sprintf(buf, "%s\n", VENDOR_BMI058);
+	else
+		return sprintf(buf, "%s\n", VENDOR);
+#else
 	return sprintf(buf, "%s\n", VENDOR);
+#endif
 }
 
 static ssize_t gyro_name_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+	if (data->ap_rev < MPU6500_REV)
+		return sprintf(buf, "%s\n", CHIP_ID_BMI058);
+	else
+		return sprintf(buf, "%s\n", CHIP_ID);
+#else
 	return sprintf(buf, "%s\n", CHIP_ID);
+#endif
 }
 
 int gyro_open_calibration(struct ssp_data *data)
@@ -89,10 +111,22 @@ static int save_gyro_caldata(struct ssp_data *data, s16 *iCalData)
 	struct file *cal_filp = NULL;
 	mm_segment_t old_fs;
 
-	data->gyrocal.x = iCalData[0]; // << 2;
-	data->gyrocal.y = iCalData[1]; // << 2;
-	data->gyrocal.z = iCalData[2]; //<< 2;
-
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	if (data->ap_rev < MPU6500_REV) {
+		data->gyrocal.x = iCalData[0];
+		data->gyrocal.y = iCalData[1];
+		data->gyrocal.z = iCalData[2];
+	}
+	else {
+		data->gyrocal.x = iCalData[0] << 2;
+		data->gyrocal.y = iCalData[1] << 2;
+		data->gyrocal.z = iCalData[2] << 2;
+	}
+#else
+	data->gyrocal.x = iCalData[0] << 2;
+	data->gyrocal.y = iCalData[1] << 2;
+	data->gyrocal.z = iCalData[2] << 2;
+#endif
 	ssp_dbg("[SSP]: do gyro calibrate %d, %d, %d\n",
 		data->gyrocal.x, data->gyrocal.y, data->gyrocal.z);
 
@@ -138,17 +172,15 @@ int set_gyro_cal(struct ssp_data *data)
 	gyro_cal[2] = data->gyrocal.z;
 
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-	if (!msg)
+	if (msg == NULL) {
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
 		return -ENOMEM;
-
+	}
 	msg->cmd = MSG2SSP_AP_MCU_SET_GYRO_CAL;
 	msg->length = 6;
 	msg->options = AP2HUB_WRITE;
 	msg->buffer = (char*) kzalloc(6, GFP_KERNEL);
-	if (!(msg->buffer)){
-		kfree(msg);
-		return -ENOMEM;
-	}
+
 	msg->free_buffer = 1;
 	memcpy(msg->buffer, gyro_cal, 6);
 
@@ -159,7 +191,7 @@ int set_gyro_cal(struct ssp_data *data)
 		iRet = ERROR;
 	}
 
-	pr_info("[SSP]: set gyro cal data %d, %d, %d\n", gyro_cal[0], gyro_cal[1], gyro_cal[2]);
+	pr_info("[SSP] Set gyro cal data %d, %d, %d\n", gyro_cal[0], gyro_cal[1], gyro_cal[2]);
 	return iRet;
 }
 
@@ -179,7 +211,7 @@ static ssize_t gyro_power_on(struct device *dev,
 	return sprintf(buf, "%d\n", 1);
 }
 
-short gyro_get_temp(struct ssp_data *data)
+short mpu6500_gyro_get_temp(struct ssp_data *data)
 {
 	char chTempBuf[2] = { 0};
 	unsigned char reg[2];
@@ -187,6 +219,10 @@ short gyro_get_temp(struct ssp_data *data)
 	int iRet = 0;
 
 	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	if (msg == NULL) {
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+		goto exit;
+	}
 	msg->cmd = GYROSCOPE_TEMP_FACTORY;
 	msg->length = 2;
 	msg->options = AP2HUB_READ;
@@ -209,15 +245,137 @@ short gyro_get_temp(struct ssp_data *data)
 	return temperature;
 }
 
-static ssize_t gyro_temp_show(struct device *dev,
-	struct device_attribute *attr, char *buf)
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+short bmi058_gyro_get_temp(struct ssp_data *data)
 {
-	struct ssp_data *data = dev_get_drvdata(dev);
+	char chTempBuf = 0;
+	short temperature = 0;
+	int iRet = 0;
 
-	return sprintf(buf, "%d\n", gyro_get_temp(data));
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cmd = GYROSCOPE_TEMP_FACTORY;
+	msg->length = 1;
+	msg->options = AP2HUB_READ;
+	msg->buffer = &chTempBuf;
+	msg->free_buffer = 0;
+
+	iRet = ssp_spi_sync(data, msg, 3000);
+	if (iRet != SUCCESS) {
+		pr_err("[SSP]: %s - Gyro Temp Timeout!!\n", __func__);
+		goto exit;
+	}
+
+	temperature = (short)chTempBuf;
+	ssp_dbg("[SSP]: %s - %d\n", __func__, temperature);
+
+	exit:
+	return temperature;
 }
 
-u32 selftest_sqrt(u32 sqsum)
+ssize_t bmi058_gyro_selftest(char *buf, struct ssp_data *data)
+{
+	char chTempBuf[19] = { 0,};
+	u8 bist=0, selftest = 0;
+	int datax_check = 0;
+	int datay_check = 0;
+	int dataz_check = 0;
+	s16 iCalData[3] = {0,};
+	int iRet = 0;
+
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	if (!msg)
+		return -ENOMEM;
+
+	msg->cmd = GYROSCOPE_FACTORY;
+	msg->length = 19;
+	msg->options = AP2HUB_READ;
+	msg->buffer = chTempBuf;
+	msg->free_buffer = 0;
+
+	iRet = ssp_spi_sync(data, msg, 3000);
+
+	if (iRet != SUCCESS) {
+		pr_err("[SSP]: %s - Gyro Selftest Timeout!!\n", __func__);
+		selftest = 1;
+		goto exit;
+	}
+
+	data->uTimeOutCnt = 0;
+
+	pr_err("[SSP]%d %d %d %d %d %d %d %d %d %d %d %d %d", chTempBuf[0],
+		chTempBuf[1], chTempBuf[2], chTempBuf[3], chTempBuf[4],
+		chTempBuf[5], chTempBuf[6], chTempBuf[7], chTempBuf[8],
+		chTempBuf[9], chTempBuf[10], chTempBuf[11], chTempBuf[12]);
+	/* Should I get bist? */
+	selftest = chTempBuf[0];
+	if (selftest == 0)
+		bist = 1;
+	else
+		bist =0;
+	datax_check = (int)((chTempBuf[4] << 24) + (chTempBuf[3] <<16)
+		+(chTempBuf[2] << 8) + chTempBuf[1]);
+	datay_check = (int)((chTempBuf[8] << 24) + (chTempBuf[7] <<16)
+		+(chTempBuf[6] << 8) + chTempBuf[5]);
+	dataz_check = (int)((chTempBuf[12] << 24) + (chTempBuf[11] <<16)
+		+(chTempBuf[10] << 8) + chTempBuf[9]);
+	iCalData[0] = (s16)((chTempBuf[14] << 8) + chTempBuf[13]);
+	iCalData[1] = (s16)((chTempBuf[16] << 8) + chTempBuf[15]);
+	iCalData[2] = (s16)((chTempBuf[18] << 8) + chTempBuf[17]);
+
+	pr_info("[SSP] gyro bist: %d, selftest: %d\n", bist, selftest);
+	pr_info("[SSP] gyro X: %d, Y: %d, Z: %d\n",
+		datax_check, datay_check, dataz_check);
+	pr_info("[SSP] iCalData X: %d, Y: %d, Z: %d\n",
+		iCalData[0], iCalData[1], iCalData[2]);
+
+	if ((datax_check <= SELFTEST_LIMITATION_OF_ERROR)
+		&& (datay_check <= SELFTEST_LIMITATION_OF_ERROR)
+		&& (dataz_check <= SELFTEST_LIMITATION_OF_ERROR)) {
+		pr_info("[SSP]: %s - Gyro zero rate OK!- Gyro selftest Pass\n",
+			__func__);
+		save_gyro_caldata(data, iCalData);
+	} else {
+		pr_info("[SSP]: %s - Gyro zero rate NG!- Gyro selftest fail!\n",
+			__func__);
+		selftest |= 1;
+	}
+exit:
+	pr_info("[SSP] %s - %d,%d,%d.%03d,%d.%03d,%d.%03d\n", __func__,
+			selftest ? 0 : 1, bist,
+			(datax_check / 1000), (datax_check % 1000),
+			(datay_check / 1000), (datay_check % 1000),
+			(dataz_check / 1000), (dataz_check % 1000));
+
+	return sprintf(buf, "%d,%d,%d.%03d,%d.%03d,%d.%03d," "%d,%d,%d,%d,%d,%d,%d,%d" "\n",
+			selftest ? 0 : 1, bist,
+			(datax_check / 1000), (datax_check % 1000),
+			(datay_check / 1000), (datay_check % 1000),
+			(dataz_check / 1000), (dataz_check % 1000),
+			iRet ,iRet ,iRet ,iRet ,iRet ,iRet ,iRet ,iRet);
+}
+#endif
+
+static ssize_t gyro_get_temp(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	short temperature = 0;
+	struct ssp_data *data = dev_get_drvdata(dev);
+
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	if (data->ap_rev < MPU6500_REV)
+		temperature = bmi058_gyro_get_temp(data);
+	else
+		temperature = mpu6500_gyro_get_temp(data);
+#else
+	temperature = mpu6500_gyro_get_temp(data);
+#endif
+	return sprintf(buf, "%d\n", temperature);
+}
+
+u32 mpu6050_selftest_sqrt(u32 sqsum)
 {
 	u32 sq_rt;
 	u32 g0, g1, g2, g3, g4;
@@ -283,7 +441,7 @@ u32 selftest_sqrt(u32 sqsum)
 	return sq_rt;
 }
 
-ssize_t gyro_selftest(char *buf, struct ssp_data *data)
+ssize_t mpu6500_gyro_selftest(char *buf, struct ssp_data *data)
 {
 	char chTempBuf[36] = { 0,};
 	u8 initialized = 0;
@@ -300,6 +458,10 @@ ssize_t gyro_selftest(char *buf, struct ssp_data *data)
 	int bias_thresh = DEF_BIAS_LSB_THRESH_SELF_6500;
 
 	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	if (msg == NULL) {
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+		goto exit;
+	}
 	msg->cmd = GYROSCOPE_FACTORY;
 	msg->length = 36;
 	msg->options = AP2HUB_READ;
@@ -315,9 +477,11 @@ ssize_t gyro_selftest(char *buf, struct ssp_data *data)
 	}
 
 	data->uTimeOutCnt = 0;
-	pr_err("[SSP]%d %d %d %d %d %d %d %d %d %d %d %d\n", chTempBuf[0], chTempBuf[1],
-		chTempBuf[2], chTempBuf[3], chTempBuf[4], chTempBuf[5], chTempBuf[6],
-		chTempBuf[7], chTempBuf[8], chTempBuf[9], chTempBuf[10], chTempBuf[11]);
+
+	pr_err("[SSP]%d %d %d %d %d %d %d %d %d %d %d %d", chTempBuf[0],
+		chTempBuf[1], chTempBuf[2], chTempBuf[3], chTempBuf[4],
+		chTempBuf[5], chTempBuf[6], chTempBuf[7], chTempBuf[8],
+		chTempBuf[9], chTempBuf[10], chTempBuf[11]);
 
 	initialized = chTempBuf[0];
 	shift_ratio[0] = (s16)((chTempBuf[2] << 8) +
@@ -435,7 +599,7 @@ ssize_t gyro_selftest(char *buf, struct ssp_data *data)
 		if (rms[i] < 0)
 			temp = 1 << 31;
 
-		dps_rms[i] = selftest_sqrt(temp) / DEF_GYRO_SENS;
+		dps_rms[i] = mpu6050_selftest_sqrt(temp) / DEF_GYRO_SENS;
 
 		gyro_rms[i] =
 		    dps_rms[i] * DEF_SCALE_FOR_FLOAT / DEF_SQRT_SCALE_FOR_RMS;
@@ -515,7 +679,14 @@ static ssize_t gyro_selftest_show(struct device *dev,
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-	return gyro_selftest(buf, data);
+#if defined(CONFIG_SENSORS_MPU6500_BMI058_DUAL)
+	if (data->ap_rev < MPU6500_REV)
+		return bmi058_gyro_selftest(buf, data);
+	else
+		return mpu6500_gyro_selftest(buf, data);
+#else
+	return mpu6500_gyro_selftest(buf, data);
+#endif
 }
 
 static ssize_t gyro_selftest_dps_store(struct device *dev,
@@ -533,9 +704,10 @@ static ssize_t gyro_selftest_dps_store(struct device *dev,
 		goto exit;
 
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-	if (!msg)
-		return -ENOMEM;
-
+	if (msg == NULL) {
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+		goto exit;
+	}
 	msg->cmd = GYROSCOPE_DPS_FACTORY;
 	msg->length = 1;
 	msg->options = AP2HUB_READ;
@@ -585,7 +757,7 @@ static DEVICE_ATTR(name, S_IRUGO, gyro_name_show, NULL);
 static DEVICE_ATTR(vendor, S_IRUGO, gyro_vendor_show, NULL);
 static DEVICE_ATTR(power_off, S_IRUGO, gyro_power_off, NULL);
 static DEVICE_ATTR(power_on, S_IRUGO, gyro_power_on, NULL);
-static DEVICE_ATTR(temperature, S_IRUGO, gyro_temp_show, NULL);
+static DEVICE_ATTR(temperature, S_IRUGO, gyro_get_temp, NULL);
 static DEVICE_ATTR(selftest, S_IRUGO, gyro_selftest_show, NULL);
 static DEVICE_ATTR(selftest_dps, S_IRUGO | S_IWUSR | S_IWGRP,
 	gyro_selftest_dps_show, gyro_selftest_dps_store);

@@ -390,7 +390,6 @@ int crypto_register_alg(struct crypto_alg *alg)
 	}
 #endif
 
-	alg->cra_flags &= ~CRYPTO_ALG_DEAD;
 	err = crypto_check_alg(alg);
 	if (err)
 		return err;
@@ -561,8 +560,8 @@ struct crypto_template *crypto_lookup_template(const char *name)
 		return ERR_PTR(-EACCES);
 	}
 #endif
-	return try_then_request_module(__crypto_lookup_template(name),
-				       "crypto-%s", name);
+	return try_then_request_module(__crypto_lookup_template(name), "%s",
+				       name);
 }
 EXPORT_SYMBOL_GPL(crypto_lookup_template);
 
@@ -896,7 +895,7 @@ struct crypto_instance *crypto_alloc_instance(const char *name,
 	struct crypto_spawn *spawn;
 	int err;
 
- #ifdef CONFIG_CRYPTO_FIPS
+#ifdef CONFIG_CRYPTO_FIPS
 	if (unlikely(in_fips_err()))
 		return ERR_PTR(-EACCES);
 #endif
@@ -1049,7 +1048,7 @@ static int __init crypto_algapi_init(void)
 #ifndef CONFIG_CRYPTO_FIPS
 	crypto_init_proc();
 #else
-	//Moved to testmgr*/
+	//Moved to testmgr
 #endif
 	return 0;
 }
@@ -1059,7 +1058,7 @@ static void __exit crypto_algapi_exit(void)
 #ifndef CONFIG_CRYPTO_FIPS
 	crypto_exit_proc();
 #else
-	//Moved to testmgr*/
+	//Moved to testmgr
 #endif
 }
 

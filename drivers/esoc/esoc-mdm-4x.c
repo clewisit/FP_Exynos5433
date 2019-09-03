@@ -19,12 +19,10 @@
 #include <linux/platform_device.h>
 #include <linux/workqueue.h>
 #include <linux/sched.h>
-#include <soc/qcom/sysmon.h>
-#include <mach/gpiomux.h>
+#include <linux/sysmon.h>
+//#include <mach/gpiomux.h>
 #include "esoc.h"
 
-
-#include <mach/sec_debug.h>
 #define MDM_PBLRDY_CNT			20
 #define INVALID_GPIO			(-1)
 #define MDM_GPIO(mdm, i)		(mdm->gpios[i])
@@ -51,6 +49,7 @@ enum mdm_gpio {
 	AP2MDM_ERRFATAL,
 	AP2MDM_VDDMIN,
 	AP2MDM_PMIC_PWR_EN,
+	AP2MDM_HSIC_READY,
 	MDM2AP_WAKEUP,
 	MDM2AP_ERRFATAL,
 	MDM2AP_PBLRDY,
@@ -81,7 +80,9 @@ struct mdm_ctrl {
 	struct completion debug_done;
 	struct device *dev;
 	struct gpiomux_setting *mdm2ap_status_gpio_run_cfg;
+#if defined(U5_TEMP)
 	struct gpiomux_setting mdm2ap_status_old_config;
+#endif
 	int mdm2ap_status_valid_old_config;
 	int soft_reset_inverted;
 	int errfatal_irq;
@@ -118,13 +119,15 @@ static struct gpio_map {
 	{"qcom,mdm2ap-status-gpio",     MDM2AP_STATUS},
 	{"qcom,ap2mdm-status-gpio",     AP2MDM_STATUS},
 	{"qcom,mdm2ap-pblrdy-gpio",     MDM2AP_PBLRDY},
-	{"qcom,ap2mdm-wakeup-gpio",     AP2MDM_WAKEUP},
-	{"qcom,ap2mdm-chnlrdy-gpio",    AP2MDM_CHNLRDY},
-	{"qcom,mdm2ap-wakeup-gpio",     MDM2AP_WAKEUP},
-	{"qcom,ap2mdm-vddmin-gpio",     AP2MDM_VDDMIN},
-	{"qcom,mdm2ap-vddmin-gpio",     MDM2AP_VDDMIN},
-	{"qcom,ap2mdm-pmic-pwr-en-gpio", AP2MDM_PMIC_PWR_EN},
-	{"qcom,mdm-link-detect-gpio", MDM_LINK_DETECT},
+//	{"qcom,ap2mdm-wakeup-gpio",     AP2MDM_WAKEUP},
+	{"qcom,ap2mdm-soft-reset-gpio",     AP2MDM_SOFT_RESET},
+//	{"qcom,ap2mdm-chnlrdy-gpio",    AP2MDM_CHNLRDY},
+//	{"qcom,mdm2ap-wakeup-gpio",     MDM2AP_WAKEUP},
+//	{"qcom,ap2mdm-vddmin-gpio",     AP2MDM_VDDMIN},
+//	{"qcom,mdm2ap-vddmin-gpio",     MDM2AP_VDDMIN},
+//	{"qcom,ap2mdm-pmic-pwr-en-gpio", AP2MDM_PMIC_PWR_EN},
+//	{"qcom,mdm-link-detect-gpio", MDM_LINK_DETECT},
+	{"qcom,ap2mdm-hsic-ready-gpio",     AP2MDM_HSIC_READY},
 };
 
 /* Required gpios */
@@ -135,8 +138,6 @@ static const int required_gpios[] = {
 	AP2MDM_STATUS,
 	AP2MDM_SOFT_RESET
 };
-
-struct mdm_ctrl *g_mdm = NULL;
 
 static void mdm_debug_gpio_show(struct mdm_ctrl *mdm)
 {
@@ -223,6 +224,7 @@ static void mdm_deconfigure_ipc(struct mdm_ctrl *mdm)
 static void mdm_update_gpio_configs(struct mdm_ctrl *mdm,
 				enum gpio_update_config gpio_config)
 {
+#if defined(U5_TEMP)
 	struct device *dev = mdm->dev;
 	/* Some gpio configuration may need updating after modem bootup.*/
 	switch (gpio_config) {
@@ -250,6 +252,7 @@ static void mdm_update_gpio_configs(struct mdm_ctrl *mdm,
 		dev_err(dev, "%s: called with no config\n", __func__);
 		break;
 	}
+#endif
 }
 
 /* This function can be called from atomic context. */
@@ -436,7 +439,7 @@ static void mdm2ap_status_check(struct work_struct *work)
 	struct esoc_clink *esoc = mdm->esoc;
 	if (gpio_get_value(MDM_GPIO(mdm, MDM2AP_STATUS)) == 0) {
 		dev_dbg(dev, "MDM2AP_STATUS did not go high\n");
-		esoc_clink_evt_notify(ESOC_INVALID_STATE, esoc);
+		esoc_clink_evt_notify(ESOC_UNEXPECTED_RESET, esoc);
 	}
 }
 
@@ -482,8 +485,6 @@ static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 	uint64_t now;
 	struct mdm_ctrl *mdm = get_esoc_clink_data(esoc);
 	struct device *dev = mdm->dev;
-	int max_spin = 20;
-	int ret;
 
 	switch (notify) {
 	case ESOC_IMG_XFER_DONE:
@@ -549,29 +550,13 @@ static void mdm_notify(enum esoc_notify notify, struct esoc_clink *esoc)
 		}
 		break;
 	case ESOC_PRIMARY_REBOOT:
-		dev_info(mdm->dev, "Triggering mdm cold reset..");
+		dev_info(mdm->dev, "Triggering mdm cold reset");
 		mdm->ready = 0;
-		while (gpio_get_value(MDM_GPIO(mdm, MDM2AP_STATUS)) && max_spin--) {
-			msleep(100);
-		}
-		dev_info(mdm->dev, "waiting is done. spin_count: %d\n", max_spin);
 		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET),
 				!!mdm->soft_reset_inverted);
 		mdelay(300);
 		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET),
 				!mdm->soft_reset_inverted);
-		break;
-	case ESOC_FORCE_CPCRASH:
-		dev_err(mdm->dev, "Force CP Crash\n");
-		gpio_set_value(MDM_GPIO(mdm, AP2MDM_ERRFATAL), 1);
-		break;
-	case ESOC_DIAG_DISABLE:
-		dev_info(mdm->dev, "Send diag_disable noti\n");
-		ret = sysmon_send_diag_disable_noti(mdm->sysmon_subsys_id);
-		if (ret < 0)
-			dev_err(mdm->dev, "sending diag_disable noti is failed, ret = %d\n", ret);
-		else
-			dev_info(mdm->dev, "sending diag_disable noti is succeed.\n");
 		break;
 	};
 	return;
@@ -638,7 +623,7 @@ static irqreturn_t mdm_pblrdy_change(int irq, void *dev_id)
 	dev = mdm->dev;
 	dev_info(dev, "pbl ready %d:\n",
 			gpio_get_value(MDM_GPIO(mdm, MDM2AP_PBLRDY)));
-	if (mdm->init && gpio_get_value(MDM_GPIO(mdm, MDM2AP_PBLRDY))) {
+	if (mdm->init) {
 		mdm->init = 0;
 		dev_err(dev, "Signaling request engine for images\n");
 		esoc_clink_queue_request(ESOC_REQ_IMG, esoc);
@@ -660,33 +645,31 @@ static int mdm_get_status(u32 *status, struct esoc_clink *esoc)
 	return 0;
 }
 
-int mdm_get_modem_status(void)
+static void mdm_set_hsic_ready(struct esoc_clink *esoc)
 {
-	if(!g_mdm) {
-		pr_err("[MIF] %s, esoc driver is not initialized\n", __func__);
-		return 1;
-	}
+	struct mdm_ctrl *mdm = get_esoc_clink_data(esoc);
 
-	return gpio_get_value(MDM_GPIO(g_mdm, MDM2AP_STATUS));
+	gpio_set_value(MDM_GPIO(mdm, AP2MDM_HSIC_READY), 1);
 }
-
-EXPORT_SYMBOL(mdm_get_modem_status);
 
 /* Fail if any of the required gpios is absent. */
 static int mdm_dt_parse_gpios(struct mdm_ctrl *mdm)
 {
 	int i, val, rc = 0;
 	struct device_node *node = mdm->dev->of_node;
-	enum of_gpio_flags flags = OF_GPIO_ACTIVE_LOW;
+//	enum of_gpio_flags flags = OF_GPIO_ACTIVE_LOW;
 
 	for (i = 0; i < NUM_GPIOS; i++)
 		mdm->gpios[i] = INVALID_GPIO;
 
 	for (i = 0; i < ARRAY_SIZE(gpio_map); i++) {
 		val = of_get_named_gpio(node, gpio_map[i].name, 0);
-		if (val >= 0)
+		if (val >= 0) {
 			MDM_GPIO(mdm, gpio_map[i].index) = val;
+			pr_info("[MIF] %s, gpio : %s\n", __func__, gpio_map[i].name);
+		}
 	}
+#if 0
 	/* These two are special because they can be inverted. */
 	val = of_get_named_gpio_flags(node, "qcom,ap2mdm-soft-reset-gpio",
 						0, &flags);
@@ -695,6 +678,7 @@ static int mdm_dt_parse_gpios(struct mdm_ctrl *mdm)
 		if (flags & OF_GPIO_ACTIVE_LOW)
 			mdm->soft_reset_inverted = 1;
 	}
+#endif
 	/* Verify that the required gpios have valid values */
 	for (i = 0; i < ARRAY_SIZE(required_gpios); i++) {
 		if (MDM_GPIO(mdm, required_gpios[i]) == INVALID_GPIO) {
@@ -774,11 +758,6 @@ static int mdm_configure_ipc(struct mdm_ctrl *mdm, struct platform_device *pdev)
 	gpio_direction_output(MDM_GPIO(mdm, AP2MDM_STATUS), 0);
 	gpio_direction_output(MDM_GPIO(mdm, AP2MDM_ERRFATAL), 0);
 
-#ifdef CONFIG_SEC_SSR_DEBUG_LEVEL_CHK
-	if (!sec_debug_is_enabled_for_ssr())
-		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_SOFT_RESET), 0);
-#endif
-
 	if (gpio_is_valid(MDM_GPIO(mdm, AP2MDM_CHNLRDY)))
 		gpio_direction_output(MDM_GPIO(mdm, AP2MDM_CHNLRDY), 0);
 
@@ -786,11 +765,19 @@ static int mdm_configure_ipc(struct mdm_ctrl *mdm, struct platform_device *pdev)
 	gpio_direction_input(MDM_GPIO(mdm, MDM2AP_ERRFATAL));
 
 	/* ERR_FATAL irq. */
+	irq = gpio_to_irq(MDM_GPIO(mdm, MDM2AP_ERRFATAL));
+	if (irq < 0) {
+		pr_err("%s: bad MDM2AP_ERRFATAL IRQ resource, err = %d\n",
+			   __func__, irq);
+		goto errfatal_err;
+	}
+#if 0
 	irq = platform_get_irq_byname(pdev, "err_fatal_irq");
 	if (irq < 0) {
 		dev_err(dev, "bad MDM2AP_ERRFATAL IRQ resource\n");
 		goto errfatal_err;
 	}
+#endif
 	ret = request_irq(irq, mdm_errfatal,
 			IRQF_TRIGGER_RISING , "mdm errfatal", mdm);
 
@@ -803,7 +790,8 @@ static int mdm_configure_ipc(struct mdm_ctrl *mdm, struct platform_device *pdev)
 
 errfatal_err:
 	 /* status irq */
-	irq = platform_get_irq_byname(pdev, "status_irq");
+	irq = gpio_to_irq(MDM_GPIO(mdm, MDM2AP_STATUS));
+	/* irq = platform_get_irq_byname(pdev, "status_irq"); */
 	if (irq < 0) {
 		dev_err(dev, "%s: bad MDM2AP_STATUS IRQ resource, err = %d\n",
 				__func__, irq);
@@ -820,7 +808,8 @@ errfatal_err:
 	mdm->status_irq = irq;
 status_err:
 	if (gpio_is_valid(MDM_GPIO(mdm, MDM2AP_PBLRDY))) {
-		irq =  platform_get_irq_byname(pdev, "plbrdy_irq");
+		irq = gpio_to_irq(MDM_GPIO(mdm, MDM2AP_PBLRDY));
+		/* irq =  platform_get_irq_byname(pdev, "plbrdy_irq"); */
 		if (irq < 0) {
 			dev_err(dev, "%s: MDM2AP_PBLRDY IRQ request failed\n",
 				 __func__);
@@ -837,6 +826,7 @@ status_err:
 		}
 		mdm->pblrdy_irq = irq;
 	}
+	//mdm_disable_irqs(mdm);
 pblrdy_err:
 	return 0;
 fatal_err:
@@ -852,6 +842,7 @@ static int mdm9x25_setup_hw(struct mdm_ctrl *mdm,
 	int ret;
 	struct esoc_clink *esoc;
 
+	pr_info("[MIF] %s\n", __func__);
 	mdm->dev = &pdev->dev;
 	esoc = devm_kzalloc(mdm->dev, sizeof(*esoc), GFP_KERNEL);
 	if (IS_ERR(esoc)) {
@@ -895,7 +886,7 @@ static int mdm9x25_setup_hw(struct mdm_ctrl *mdm,
 	mdm->debug_fail = false;
 	mdm->esoc = esoc;
 	mdm->init = 0;
-	g_mdm = mdm;
+
 	return 0;
 }
 
@@ -969,13 +960,13 @@ static int mdm9x35_setup_hw(struct mdm_ctrl *mdm,
 	mdm->debug_fail = false;
 	mdm->esoc = esoc;
 	mdm->init = 0;
-	g_mdm = mdm;
 	return 0;
 }
 
 static struct esoc_clink_ops mdm_cops = {
 	.cmd_exe = mdm_cmd_exe,
 	.get_status = mdm_get_status,
+	.set_hsic_ready = mdm_set_hsic_ready,
 	.notify = mdm_notify,
 };
 
@@ -990,8 +981,8 @@ static struct mdm_ops mdm9x35_ops = {
 };
 
 static struct of_device_id mdm_dt_match[] = {
-	{ .compatible = "qcom,ext-mdm9x35",
-		.data = &mdm9x35_ops, },
+	{ .compatible = "qcom,ext-mdm9x25",
+		.data = &mdm9x25_ops, },
 	{},
 };
 MODULE_DEVICE_TABLE(of, mdm_dt_match);
@@ -1018,6 +1009,7 @@ static int mdm_probe(struct platform_device *pdev)
 	struct device_node *node = pdev->dev.of_node;
 	struct mdm_ctrl *mdm;
 
+	pr_info("[MIF] %s\n", __func__);
 	match = of_match_node(mdm_dt_match, node);
 	if (IS_ERR(match))
 		return PTR_ERR(match);
@@ -1039,6 +1031,7 @@ static struct platform_driver mdm_driver = {
 
 static int __init mdm_register(void)
 {
+	pr_info("[MIF] %s\n", __func__);
 	return platform_driver_register(&mdm_driver);
 }
 module_init(mdm_register);

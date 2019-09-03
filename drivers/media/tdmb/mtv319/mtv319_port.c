@@ -28,15 +28,12 @@
 
 
 /* Declares a variable of gurad object if neccessry. */
-#if defined(RTV_IF_SPI) || defined(RTV_IF_EBI2)\
-|| defined(RTV_FIC_I2C_INTR_ENABLED)
-	#if defined(__KERNEL__)
-	struct mutex raontv_guard;
-	#elif defined(WINCE) || defined(WINDOWS) || defined(WIN32)
-	CRITICAL_SECTION raontv_guard;
-	#else
-	/* non-OS and RTOS. */
-	#endif
+#if defined(__KERNEL__)
+struct mutex raontv_guard;
+#elif defined(WINCE) || defined(WINDOWS) || defined(WIN32)
+CRITICAL_SECTION raontv_guard;
+#else
+/* non-OS and RTOS. */
 #endif
 
 #if defined(RTV_IF_SPI)
@@ -97,14 +94,14 @@ void mtv319_spi_read_burst(unsigned char page, unsigned char reg,
 	struct spi_message msg;
 	struct spi_transfer xfer0 = {
 		.tx_buf = out_buf,
-		.rx_buf = buf,
+		.rx_buf = 0,
 		.len = MTV319_SPI_CMD_SIZE,
 		.cs_change = 0,
 		.delay_usecs = 0
 	};
 
 	struct spi_transfer xfer1 = {
-		.tx_buf = buf,
+		.tx_buf = 0,
 		.rx_buf = buf,
 		.len = size,
 		.cs_change = 0,

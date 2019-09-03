@@ -54,13 +54,13 @@ struct gether {
 	bool				is_fixed;
 	u32				fixed_out_len;
 	u32				fixed_in_len;
-
+#ifdef CONFIG_USB_RNDIS_MULTIPACKET
 	unsigned			ul_max_pkts_per_xfer;
-	uint32_t			dl_max_pkts_per_xfer;
-	uint32_t			dl_max_xfer_size;
+	unsigned			dl_max_pkts_per_xfer;
 	bool				multi_pkt_xfer;
-	bool				rx_trigger_enabled;
-	bool				rx_triggered;
+
+	struct rndis_packet_msg_type	*header;
+#endif
 	struct sk_buff			*(*wrap)(struct gether *port,
 						struct sk_buff *skb);
 	int				(*unwrap)(struct gether *port,

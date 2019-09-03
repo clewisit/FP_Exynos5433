@@ -1305,9 +1305,9 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 	}
 
  done:
-#if defined(CONFIG_MACH_TRLTE_ATT)
-	dev_info(&udev->dev, "%s: status %d\n", __func__, status);
-#else
+#if defined(CONFIG_LINK_DEVICE_HSIC)
+	dev_dbg(&udev->dev, "%s: status %d\n", __func__, status);
+#endif
 	dev_vdbg(&udev->dev, "%s: status %d\n", __func__, status);
 #endif
 	return status;
@@ -1853,6 +1853,7 @@ int usb_runtime_suspend(struct device *dev)
 	 */
 	if (status != 0 && udev->parent)
 		return -EBUSY;
+
 	return status;
 }
 

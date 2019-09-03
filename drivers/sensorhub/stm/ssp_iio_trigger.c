@@ -15,7 +15,6 @@
 
 #include "ssp.h"
 #include <linux/iio/iio.h>
-#include <linux/iio/sysfs.h>
 #include <linux/iio/trigger.h>
 /*
  * ssp_iio_data_rdy_trigger_set_state() set data ready interrupt state
@@ -52,4 +51,3 @@ void ssp_iio_remove_trigger(struct iio_trigger *trig)
 	iio_trigger_unregister(trig);
 	iio_trigger_free(trig);
 }
-

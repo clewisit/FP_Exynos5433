@@ -1455,7 +1455,7 @@ static void reg_set_request_processed(void)
 	* since device should find around other Access Points.
 	* 2014.1.8 Convergence Wi-Fi Core
 	*/
-	printk("regulatory is not updated via %s.\n", __func__);
+	printk("regulatory is not upadted via %s.\n", __func__);
 	return;
 #endif
 
@@ -2022,6 +2022,7 @@ int regulatory_hint_found_beacon(struct wiphy *wiphy,
 {
 	struct reg_beacon *reg_beacon;
 	bool processing;
+
 #ifdef CONFIG_CFG80211_REG_NOT_UPDATED
 	/*
 	* SAMSUNG FIX : Regulatory Configuration was update
@@ -2032,6 +2033,7 @@ int regulatory_hint_found_beacon(struct wiphy *wiphy,
 	*/
 	return 0;
 #endif
+
 	if (beacon_chan->beacon_found ||
 	    beacon_chan->flags & IEEE80211_CHAN_RADAR ||
 	    (beacon_chan->band == IEEE80211_BAND_2GHZ &&

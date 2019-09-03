@@ -720,6 +720,7 @@ static int ethtool_get_wol(struct net_device *dev, char __user *useraddr)
 
 	memset(&wol, 0, sizeof(struct ethtool_wolinfo));
 	wol.cmd = ETHTOOL_GWOL;
+
 	dev->ethtool_ops->get_wol(dev, &wol);
 
 	if (copy_to_user(useraddr, &wol, sizeof(wol)))

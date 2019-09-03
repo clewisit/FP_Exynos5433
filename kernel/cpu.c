@@ -20,7 +20,11 @@
 #include <linux/gfp.h>
 #include <linux/suspend.h>
 
-#include <trace/events/sched.h>
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
+#include <mach/cpufreq.h>
+#endif
+
+#include <linux/sec_debug.h>
 
 #include "smpboot.h"
 
@@ -369,6 +373,7 @@ int __ref cpu_down(unsigned int cpu)
 	int err;
 
 	cpu_maps_update_begin();
+	sec_debug_task_log_msg(cpu, "cpu_down+");
 
 	if (cpu_hotplug_disabled) {
 		err = -EBUSY;
@@ -378,6 +383,7 @@ int __ref cpu_down(unsigned int cpu)
 	err = _cpu_down(cpu, 0);
 
 out:
+	sec_debug_task_log_msg(cpu, "cpu_down-");
 	cpu_maps_update_done();
 	return err;
 }
@@ -393,6 +399,7 @@ static int __cpuinit _cpu_up(unsigned int cpu, int tasks_frozen)
 	struct task_struct *idle;
 
 	cpu_hotplug_begin();
+	sec_debug_task_log_msg(cpu, "cpu_up+");
 
 	if (cpu_online(cpu) || !cpu_present(cpu)) {
 		ret = -EINVAL;
@@ -433,6 +440,7 @@ out_notify:
 	if (ret != 0)
 		__cpu_notify(CPU_UP_CANCELED | mod, hcpu, nr_calls, NULL);
 out:
+	sec_debug_task_log_msg(cpu, "cpu_up-");
 	cpu_hotplug_done();
 	trace_sched_cpu_hotplug(cpu, ret, 1);
 
@@ -574,6 +582,16 @@ static cpumask_var_t frozen_cpus;
 int disable_nonboot_cpus(void)
 {
 	int cpu, first_cpu, error = 0;
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
+	int lated_cpu;
+#endif
+
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
+	if (exynos_boot_cluster == CA7)
+		lated_cpu = NR_CA7;
+	else
+		lated_cpu = NR_CA15;
+#endif
 
 	cpu_maps_update_begin();
 	first_cpu = cpumask_first(cpu_online_mask);
@@ -585,7 +603,11 @@ int disable_nonboot_cpus(void)
 
 	printk("Disabling non-boot CPUs ...\n");
 	for_each_online_cpu(cpu) {
+#if defined(CONFIG_ARM_EXYNOS_MP_CPUFREQ)
+		if (cpu == first_cpu || cpu == lated_cpu)
+#else
 		if (cpu == first_cpu)
+#endif
 			continue;
 		error = _cpu_down(cpu, 1);
 		if (!error)
@@ -597,6 +619,16 @@ int disable_nonboot_cpus(void)
 		}
 	}
 
+#ifdef CONFIG_ARM_EXYNOS_MP_CPUFREQ
+	if (num_online_cpus() > 1) {
+		error = _cpu_down(lated_cpu, 1);
+		if (!error)
+			cpumask_set_cpu(lated_cpu, frozen_cpus);
+		else
+			printk(KERN_ERR "Error taking CPU%d down: %d\n",
+				lated_cpu, error);
+	}
+#endif
 	if (!error) {
 		BUG_ON(num_online_cpus() > 1);
 		/* Make sure the CPUs won't be enabled by someone else */
@@ -616,6 +648,17 @@ void __weak arch_enable_nonboot_cpus_end(void)
 {
 }
 
+#if defined(CONFIG_SCHED_HMP) && defined(CONFIG_EXYNOS5_DYNAMIC_CPU_HOTPLUG)
+extern struct cpumask hmp_slow_cpu_mask;
+extern int disable_dm_hotplug_before_suspend;
+#endif
+
+#if defined(CONFIG_SENSORS_FP_LOCKSCREEN_MODE)
+extern bool fp_lockscreen_mode;
+#else
+static bool fp_lockscreen_mode = false;
+#endif
+
 void __ref enable_nonboot_cpus(void)
 {
 	int cpu, error;
@@ -630,6 +673,11 @@ void __ref enable_nonboot_cpus(void)
 	printk(KERN_INFO "Enabling non-boot CPUs ...\n");
 
 	arch_enable_nonboot_cpus_begin();
+
+#if defined(CONFIG_SCHED_HMP) && defined(CONFIG_EXYNOS5_DYNAMIC_CPU_HOTPLUG)
+	if (!disable_dm_hotplug_before_suspend && !fp_lockscreen_mode)
+		cpumask_and(frozen_cpus, frozen_cpus, &hmp_slow_cpu_mask);
+#endif
 
 	for_each_cpu(cpu, frozen_cpus) {
 		error = _cpu_up(cpu, 1);

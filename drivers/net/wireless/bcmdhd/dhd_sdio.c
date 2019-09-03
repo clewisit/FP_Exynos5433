@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_sdio.c 593074 2015-10-15 08:38:56Z $
+ * $Id: dhd_sdio.c 637878 2016-05-16 04:44:38Z $
  */
 
 #include <typedefs.h>
@@ -42,8 +42,8 @@
 #include <hndsoc.h>
 #include <bcmsdpcm.h>
 #if defined(DHD_DEBUG)
-#include <hnd_armtrap.h>
-#include <hnd_cons.h>
+#include <hndrte_armtrap.h>
+#include <hndrte_cons.h>
 #endif /* defined(DHD_DEBUG) */
 #include <sbchipc.h>
 #include <sbhnddma.h>
@@ -72,9 +72,10 @@
 #ifdef PROP_TXSTATUS
 #include <dhd_wlfc.h>
 #endif
+
 #ifdef DHDTCPACK_SUPPRESS
 #include <dhd_ip.h>
-#endif /* DHDTCPACK_SUPPRESS */
+#endif
 
 bool dhd_mp_halting(dhd_pub_t *dhdp);
 extern void bcmsdh_waitfor_iodrain(void *sdh);
@@ -148,9 +149,9 @@ extern bool  bcmsdh_fatal_error(void *sdh);
 #endif
 
 /* hooks for limiting threshold custom tx num in rx processing */
-#define DEFAULT_TXINRX_THRES    0
-#ifndef CUSTOM_TXINRX_THRES
-#define CUSTOM_TXINRX_THRES     DEFAULT_TXINRX_THRES
+#define DEFAULT_TXINRX_THRES	0
+#ifndef	CUSTOM_TXINRX_THRES
+#define CUSTOM_TXINRX_THRES		DEFAULT_TXINRX_THRES
 #endif
 
 /* Value for ChipClockCSR during initial setup */
@@ -173,6 +174,10 @@ DEFINE_MUTEX(_dhd_sdio_mutex_lock_);
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25)) */
 #endif 
 
+#if defined(SUPPORT_MULTIPLE_BOARD_REV_FROM_HW)
+extern unsigned int system_hw_rev;
+#endif /* SUPPORT_MULTIPLE_BOARD_REV_FROM_HW */
+
 #ifdef DHD_DEBUG
 /* Device console log buffer state */
 #define CONSOLE_LINE_MAX	192
@@ -180,7 +185,7 @@ DEFINE_MUTEX(_dhd_sdio_mutex_lock_);
 typedef struct dhd_console {
 	uint		count;			/* Poll interval msec counter */
 	uint		log_addr;		/* Log struct address (fixed) */
-	hnd_log_t	log;			/* Log struct (host copy) */
+	hndrte_log_t	log;			/* Log struct (host copy) */
 	uint		bufsize;		/* Size of log buffer */
 	uint8		*buf;			/* Log buffer (host copy) */
 	uint		last;			/* Last buffer read index */
@@ -295,7 +300,9 @@ typedef struct dhd_bus {
 	int32		sd_rxchain;		/* If bcmsdh api accepts PKT chains */
 	bool		use_rxchain;		/* If dhd should use PKT chains */
 	bool		sleeping;		/* Is SDIO bus sleeping? */
+#if defined(SUPPORT_P2P_GO_PS)
 	wait_queue_head_t bus_sleep;
+#endif /* LINUX && SUPPORT_P2P_GO_PS */
 	uint		rxflow_mode;		/* Rx flow control mode */
 	bool		rxflow;			/* Is rx flow control on */
 	uint		prev_rxlim_hit;		/* Is prev rx limit exceeded (per dpc schedule) */
@@ -364,7 +371,7 @@ typedef struct dhd_bus {
 #ifdef DHDENABLE_TAILPAD
 	uint		tx_tailpad_chain;	/* Number of tail padding by chaining pad_pkt */
 	uint		tx_tailpad_pktget;	/* Number of tail padding by new PKTGET */
-#endif /* DHDENABLE_TAILPAD */
+#endif
 	uint8		*ctrl_frame_buf;
 	uint32		ctrl_frame_len;
 	bool		ctrl_frame_stat;
@@ -389,9 +396,7 @@ typedef struct dhd_bus {
 	uint32		txglom_total_len;	/* Total length of pkts in glom array */
 	bool		txglom_enable;	/* Flag to indicate whether tx glom is enabled/disabled */
 	uint32		txglomsize;	/* Glom size limitation */
-#ifdef DHDENABLE_TAILPAD
 	void		*pad_pkt;
-#endif /* DHDENABLE_TAILPAD */
 } dhd_bus_t;
 
 /* clkstate */
@@ -645,7 +650,14 @@ static int dhdsdio_download_code_array(dhd_bus_t *bus);
 static int dhdsdio_bussleep(dhd_bus_t *bus, bool sleep);
 static int dhdsdio_clkctl(dhd_bus_t *bus, uint target, bool pendok);
 static uint8 dhdsdio_sleepcsr_get(dhd_bus_t *bus);
+#ifdef SUPPORT_MULTIPLE_BOARD_REV_FROM_DT
+int dhd_get_system_rev(void);
+#endif /* SUPPORT_MULTIPLE_BOARD_REV_FROM_DT */
 
+#ifdef WLMEDIA_HTSF
+#include <htsf.h>
+extern uint32 dhd_get_htsf(void *dhd, int ifidx);
+#endif /* WLMEDIA_HTSF */
 
 static void
 dhdsdio_tune_fifoparam(struct dhd_bus *bus)
@@ -775,6 +787,7 @@ dhdsdio_sr_cap(dhd_bus_t *bus)
 	bool cap = FALSE;
 	uint32  core_capext, addr, data;
 
+
 	if (bus->sih->chip == BCM43430_CHIP_ID) {
 		/* check if fw initialized sr engine */
 		addr = SI_ENUM_BASE + OFFSETOF(chipcregs_t, sr_control1);
@@ -783,6 +796,7 @@ dhdsdio_sr_cap(dhd_bus_t *bus)
 
 		return cap;
 	}
+
 	if (bus->sih->chip == BCM4324_CHIP_ID) {
 			addr = SI_ENUM_BASE + OFFSETOF(chipcregs_t, chipcontrol_addr);
 			data = SI_ENUM_BASE + OFFSETOF(chipcregs_t, chipcontrol_data);
@@ -794,10 +808,9 @@ dhdsdio_sr_cap(dhd_bus_t *bus)
 		(bus->sih->chip == BCM4339_CHIP_ID) ||
 		(bus->sih->chip == BCM43349_CHIP_ID) ||
 		(bus->sih->chip == BCM4345_CHIP_ID) ||
+		(bus->sih->chip == BCM43454_CHIP_ID) ||
 		(bus->sih->chip == BCM4354_CHIP_ID) ||
 		(bus->sih->chip == BCM4356_CHIP_ID) ||
-		(bus->sih->chip == BCM4358_CHIP_ID) ||
-		(BCM4349_CHIP(bus->sih->chip))		||
 		(bus->sih->chip == BCM4350_CHIP_ID)) {
 		core_capext = TRUE;
 	} else {
@@ -814,9 +827,9 @@ dhdsdio_sr_cap(dhd_bus_t *bus)
 		(bus->sih->chip == BCM4339_CHIP_ID) ||
 		(bus->sih->chip == BCM43349_CHIP_ID) ||
 		(bus->sih->chip == BCM4345_CHIP_ID) ||
+		(bus->sih->chip == BCM43454_CHIP_ID) ||
 		(bus->sih->chip == BCM4354_CHIP_ID) ||
 		(bus->sih->chip == BCM4356_CHIP_ID) ||
-		(bus->sih->chip == BCM4358_CHIP_ID) ||
 		(bus->sih->chip == BCM4350_CHIP_ID)) {
 		uint32 enabval = 0;
 		addr = SI_ENUM_BASE + OFFSETOF(chipcregs_t, chipcontrol_addr);
@@ -826,9 +839,9 @@ dhdsdio_sr_cap(dhd_bus_t *bus)
 
 		if ((bus->sih->chip == BCM4350_CHIP_ID) ||
 			(bus->sih->chip == BCM4345_CHIP_ID) ||
-			(bus->sih->chip == BCM4354_CHIP_ID) ||
+			(bus->sih->chip == BCM43454_CHIP_ID) ||
 			(bus->sih->chip == BCM4356_CHIP_ID) ||
-			(bus->sih->chip == BCM4358_CHIP_ID))
+			(bus->sih->chip == BCM4354_CHIP_ID))
 			enabval &= CC_CHIPCTRL3_SR_ENG_ENABLE;
 
 		if (enabval)
@@ -871,9 +884,13 @@ dhdsdio_sr_init(dhd_bus_t *bus)
 		1 << SBSDIO_FUNC1_WCTRL_HTWAIT_SHIFT, &err);
 	val = bcmsdh_cfg_read(bus->sdh, SDIO_FUNC_1, SBSDIO_FUNC1_WAKEUPCTRL, NULL);
 
+#ifdef USE_CMD14
 	/* Add CMD14 Support */
 	dhdsdio_devcap_set(bus,
 		(SDIOD_CCCR_BRCM_CARDCAP_CMD14_SUPPORT | SDIOD_CCCR_BRCM_CARDCAP_CMD14_EXT));
+#endif /* USE_CMD14 */
+
+	dhdsdio_devcap_set(bus, SDIOD_CCCR_BRCM_CARDCAP_CMD_NODEC);
 
 	bcmsdh_cfg_write(bus->sdh, SDIO_FUNC_1,
 		SBSDIO_FUNC1_CHIPCLKCSR, SBSDIO_FORCE_HT, &err);
@@ -1567,7 +1584,9 @@ dhdsdio_bussleep(dhd_bus_t *bus, bool sleep)
 
 		/* Change state */
 		bus->sleeping = TRUE;
+#if defined(SUPPORT_P2P_GO_PS)
 		wake_up(&bus->bus_sleep);
+#endif /* LINUX && SUPPORT_P2P_GO_PS */
 	} else {
 		/* Waking up: bus power up is ok, set local state */
 
@@ -1682,7 +1701,6 @@ dhd_bus_txdata(struct dhd_bus *bus, void *pkt)
 	uint datalen, prec;
 #if defined(DHD_TX_DUMP)
 	uint8 *dump_data;
-	uint16 protocol;
 #endif /* DHD_TX_DUMP */
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
@@ -1863,6 +1881,16 @@ static int dhdsdio_txpkt_preprocess(dhd_bus_t *bus, void *pkt, int chan, int txs
 	frame = (uint8*)PKTDATA(osh, pkt);
 	pkt_len = (uint16)PKTLEN(osh, pkt);
 
+#ifdef WLMEDIA_HTSF
+	frame = (uint8*)PKTDATA(osh, pkt);
+	if (PKTLEN(osh, pkt) >= 100) {
+		htsf_ts = (htsfts_t*) (frame + HTSF_HOSTOFFSET + 12);
+		if (htsf_ts->magic == HTSFMAGIC) {
+			htsf_ts->c20 = get_cycles();
+			htsf_ts->t20 = dhd_get_htsf(bus->dhd->info, 0);
+		}
+	}
+#endif /* WLMEDIA_HTSF */
 #ifdef DHD_DEBUG
 	if (PKTPRIO(pkt) < ARRAYSIZE(tx_packets))
 		tx_packets[PKTPRIO(pkt)]++;
@@ -2138,13 +2166,11 @@ static int dhdsdio_txpkt(dhd_bus_t *bus, uint chan, void** pkts, int num_pkt, bo
 
 	}
 
-#ifdef DHDENABLE_TAILPAD
 	/* if a padding packet if needed, insert it to the end of the link list */
 	if (pad_pkt_len) {
 		PKTSETLEN(osh, bus->pad_pkt, pad_pkt_len);
 		PKTSETNEXT(osh, pkt, bus->pad_pkt);
 	}
-#endif /* DHDENABLE_TAILPAD */
 
 	/* dhd_bcmsdh_send_buf ignores the buffer pointer if he packet
 	 * parameter is not NULL, for non packet chian we pass NULL pkt pointer
@@ -2207,6 +2233,10 @@ dhdsdio_sendfromq(dhd_bus_t *bus, uint maxframes)
 	uint datalen = 0;
 	dhd_pub_t *dhd = bus->dhd;
 	sdpcmd_regs_t *regs = bus->regs;
+#ifdef DHD_LOSSLESS_ROAMING
+	uint8 *pktdata;
+	struct ether_header *eh;
+#endif /* DHD_LOSSLESS_ROAMING */
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -2219,7 +2249,7 @@ dhdsdio_sendfromq(dhd_bus_t *bus, uint maxframes)
 	tx_prec_map = ~bus->flowcontrol;
 #ifdef DHD_LOSSLESS_ROAMING
 	tx_prec_map &= dhd->dequeue_prec_map;
-#endif
+#endif /* DHD_LOSSLESS_ROAMING */
 	for (cnt = 0; (cnt < maxframes) && DATAOK(bus);) {
 		int i;
 		int num_pkt = 1;
@@ -2235,11 +2265,24 @@ dhdsdio_sendfromq(dhd_bus_t *bus, uint maxframes)
 		for (i = 0; i < num_pkt; i++) {
 			pkts[i] = pktq_mdeq(&bus->txq, tx_prec_map, &prec_out);
 			if (!pkts[i]) {
-				DHD_ERROR(("%s: pktq_mlen non-zero when no pkt\n",
+				DHD_ERROR(("%s: pktg_mlen non-zero when no pkt\n",
 					__FUNCTION__));
 				ASSERT(0);
 				break;
 			}
+#ifdef DHD_LOSSLESS_ROAMING
+			pktdata = (uint8 *)PKTDATA(osh, pkts[i]);
+			eh = (struct ether_header *)pktdata;
+
+			if (eh->ether_type == hton16(ETHER_TYPE_802_1X)) {
+                                uint8 prio = (uint8)PKTPRIO(pkts[i]);
+
+                                /* Restore to original priority for 802.1X packet */
+                                if (prio == PRIO_8021D_NC) {
+					PKTSETPRIO(pkts[i], dhd->prio_8021x);
+				}
+			}
+#endif /* DHD_LOSSLESS_ROAMING */
 			PKTORPHAN(pkts[i]);
 			datalen += PKTLEN(osh, pkts[i]);
 		}
@@ -2696,7 +2739,7 @@ dhd_bus_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 #ifdef DHDENABLE_TAILPAD
 	bcm_bprintf(strbuf, "tx_tailpad_chain %u tx_tailpad_pktget %u\n",
 	            bus->tx_tailpad_chain, bus->tx_tailpad_pktget);
-#endif /* DHDENABLE_TAILPAD */
+#endif
 	bcm_bprintf(strbuf, "tx_sderrs %u fcqueued %u rxrtx %u rx_toolong %u rxc_errors %u\n",
 	            bus->tx_sderrs, bus->fcqueued, bus->rxrtx, bus->rx_toolong,
 	            bus->rxc_errors);
@@ -2772,7 +2815,7 @@ dhd_bus_clearcounts(dhd_pub_t *dhdp)
 	bus->rx_hdrfail = bus->rx_badhdr = bus->rx_badseq = 0;
 #ifdef DHDENABLE_TAILPAD
 	bus->tx_tailpad_chain = bus->tx_tailpad_pktget = 0;
-#endif /* DHDENABLE_TAILPAD */
+#endif
 	bus->tx_sderrs = bus->fc_rcvd = bus->fc_xoff = bus->fc_xon = 0;
 	bus->rxglomfail = bus->rxglomframes = bus->rxglompkts = 0;
 	bus->f2rxhdrs = bus->f2rxdata = bus->f2txdata = bus->f1regdata = 0;
@@ -2995,7 +3038,7 @@ dhdsdio_readconsole(dhd_bus_t *bus)
 		return 0;
 
 	/* Read console log struct */
-	addr = bus->console_addr + OFFSETOF(hnd_cons_t, log);
+	addr = bus->console_addr + OFFSETOF(hndrte_cons_t, log);
 	if ((rv = dhdsdio_membytes(bus, FALSE, addr, (uint8 *)&c->log, sizeof(c->log))) < 0)
 		return rv;
 
@@ -3166,17 +3209,17 @@ dhdsdio_checkdied(dhd_bus_t *bus, char *data, uint size)
 			ltoh32(tr.r0), ltoh32(tr.r1), ltoh32(tr.r2), ltoh32(tr.r3),
 			ltoh32(tr.r4), ltoh32(tr.r5), ltoh32(tr.r6), ltoh32(tr.r7));
 
-			addr = sdpcm_shared.console_addr + OFFSETOF(hnd_cons_t, log);
+			addr = sdpcm_shared.console_addr + OFFSETOF(hndrte_cons_t, log);
 			if ((rv = dhdsdio_membytes(bus, FALSE, addr,
 				(uint8 *)&console_ptr, sizeof(console_ptr))) < 0)
 				goto printbuf;
 
-			addr = sdpcm_shared.console_addr + OFFSETOF(hnd_cons_t, log.buf_size);
+			addr = sdpcm_shared.console_addr + OFFSETOF(hndrte_cons_t, log.buf_size);
 			if ((rv = dhdsdio_membytes(bus, FALSE, addr,
 				(uint8 *)&console_size, sizeof(console_size))) < 0)
 				goto printbuf;
 
-			addr = sdpcm_shared.console_addr + OFFSETOF(hnd_cons_t, log.idx);
+			addr = sdpcm_shared.console_addr + OFFSETOF(hndrte_cons_t, log.idx);
 			if ((rv = dhdsdio_membytes(bus, FALSE, addr,
 				(uint8 *)&console_index, sizeof(console_index))) < 0)
 				goto printbuf;
@@ -3241,6 +3284,10 @@ int
 dhdsdio_downloadvars(dhd_bus_t *bus, void *arg, int len)
 {
 	int bcmerror = BCME_OK;
+#if defined(KEEP_KR_REGREV) || defined(KEEP_JP_REGREV)
+	char *tmpbuf;
+	uint tmpidx;
+#endif /* KEEP_KR_REGREV || KEEP_JP_REGREV */
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -3267,6 +3314,32 @@ dhdsdio_downloadvars(dhd_bus_t *bus, void *arg, int len)
 
 	/* Copy the passed variables, which should include the terminating double-null */
 	bcopy(arg, bus->vars, bus->varsz);
+
+#if defined(KEEP_KR_REGREV) || defined(KEEP_JP_REGREV)
+	if (bus->vars != NULL && bus->varsz > 0) {
+		char *pos = NULL;
+		tmpbuf = MALLOCZ(bus->dhd->osh, bus->varsz + 1);
+		if (tmpbuf == NULL) {
+			goto err;
+		}
+		memcpy(tmpbuf, bus->vars, bus->varsz);
+		for (tmpidx = 0; tmpidx < bus->varsz; tmpidx++) {
+			if (tmpbuf[tmpidx] == 0) {
+				tmpbuf[tmpidx] = '\n';
+			}
+		}
+		bus->dhd->vars_ccode[0] = 0;
+		bus->dhd->vars_regrev = 0;
+		if ((pos = strstr(tmpbuf, "ccode"))) {
+			sscanf(pos, "ccode=%s\n", bus->dhd->vars_ccode);
+		}
+		if ((pos = strstr(tmpbuf, "regrev"))) {
+			sscanf(pos, "regrev=%u\n", &(bus->dhd->vars_regrev));
+		}
+		MFREE(bus->dhd->osh, tmpbuf, bus->varsz + 1);
+	}
+#endif /* KEEP_KR_REGREV || KEEP_JP_REGREV */
+
 err:
 	return bcmerror;
 }
@@ -3957,8 +4030,10 @@ dhdsdio_write_vars(dhd_bus_t *bus)
 		/* Verify NVRAM bytes */
 		DHD_INFO(("Compare NVRAM dl & ul; varsize=%d\n", varsize));
 		nvram_ularray = (uint8*)MALLOC(bus->dhd->osh, varsize);
-		if (!nvram_ularray)
+		if (!nvram_ularray) {
+			MFREE(bus->dhd->osh, vbuffer, varsize);
 			return BCME_NOMEM;
+		}
 
 		/* Upload image to verify downloaded contents. */
 		memset(nvram_ularray, 0xaa, varsize);
@@ -4588,6 +4663,21 @@ dhd_bus_init(dhd_pub_t *dhdp, bool enforce_mutex)
 	/* If we didn't come up, turn off backplane clock */
 	if (dhdp->busstate != DHD_BUS_DATA)
 		dhdsdio_clkctl(bus, CLK_NONE, FALSE);
+
+#if defined(CUSTOMER_HW4) && defined(BCMHOST_XTAL_PU_TIME_MOD)
+#ifdef BCM4330_CHIP
+	bcmsdh_reg_write(bus->sdh, 0x18000620, 2, 11);
+	bcmsdh_reg_write(bus->sdh, 0x18000628, 4, 0x0000F801);
+#endif
+#ifdef BCM4334_CHIP
+	bcmsdh_reg_write(bus->sdh, 0x18000620, 2, 11);
+	bcmsdh_reg_write(bus->sdh, 0x18000628, 4, 0x00F80001);
+#endif
+#ifdef BCM43430_CHIP
+	bcmsdh_reg_write(bus->sdh, 0x18000620, 2, 12);
+	bcmsdh_reg_write(bus->sdh, 0x18000628, 4, 0x00A60001);
+#endif
+#endif /* defined(CUSTOMER_HW4) && defined(BCMHOST_XTAL_PU_TIME_MOD */
 
 exit:
 	if (enforce_mutex)
@@ -6325,7 +6415,7 @@ exit:
 	dhd_os_sdunlock(bus->dhd);
 #if defined(CUSTOMER_HW4)
 	if (bus->dhd->dhd_bug_on) {
-		DHD_ERROR(("%s: resched = %d ctrl_frame_stat = %d intstatus 0x%08x"
+		DHD_INFO(("%s: resched = %d ctrl_frame_stat = %d intstatus 0x%08x"
 			" ipend = %d pktq_mlen = %d is_resched_by_readframe = %d \n",
 			__FUNCTION__, resched, bus->ctrl_frame_stat,
 			bus->intstatus, bus->ipend,
@@ -6780,8 +6870,6 @@ dhd_bus_watchdog(dhd_pub_t *dhdp)
 	if (dhdp->busstate == DHD_BUS_DOWN)
 		return FALSE;
 
-	dhd_os_sdlock(bus->dhd);
-
 	/* Poll period: check device if appropriate. */
 	if (!SLPAUTO_ENAB(bus) && (bus->poll && (++bus->polltick >= bus->pollrate))) {
 		uint32 intstatus = 0;
@@ -6891,8 +6979,6 @@ dhd_bus_watchdog(dhd_pub_t *dhdp)
 	}
 #endif /* DHD_USE_IDLECOUNT */
 
-	dhd_os_sdunlock(bus->dhd);
-
 	return bus->ipend;
 }
 
@@ -6924,18 +7010,18 @@ dhd_bus_console_in(dhd_pub_t *dhdp, uchar *msg, uint msglen)
 	dhdsdio_clkctl(bus, CLK_AVAIL, FALSE);
 
 	/* Zero cbuf_index */
-	addr = bus->console_addr + OFFSETOF(hnd_cons_t, cbuf_idx);
+	addr = bus->console_addr + OFFSETOF(hndrte_cons_t, cbuf_idx);
 	val = htol32(0);
 	if ((rv = dhdsdio_membytes(bus, TRUE, addr, (uint8 *)&val, sizeof(val))) < 0)
 		goto done;
 
 	/* Write message into cbuf */
-	addr = bus->console_addr + OFFSETOF(hnd_cons_t, cbuf);
+	addr = bus->console_addr + OFFSETOF(hndrte_cons_t, cbuf);
 	if ((rv = dhdsdio_membytes(bus, TRUE, addr, (uint8 *)msg, msglen)) < 0)
 		goto done;
 
 	/* Write length into vcons_in */
-	addr = bus->console_addr + OFFSETOF(hnd_cons_t, vcons_in);
+	addr = bus->console_addr + OFFSETOF(hndrte_cons_t, vcons_in);
 	val = htol32(msglen);
 	if ((rv = dhdsdio_membytes(bus, TRUE, addr, (uint8 *)&val, sizeof(val))) < 0)
 		goto done;
@@ -7031,7 +7117,7 @@ dhdsdio_chipmatch(uint16 chipid)
 		return TRUE;
 	if (chipid == BCM43349_CHIP_ID)
 		return TRUE;
-	if (chipid == BCM4345_CHIP_ID)
+	if (chipid == BCM4345_CHIP_ID || chipid == BCM43454_CHIP_ID)
 		return TRUE;
 	if (chipid == BCM4350_CHIP_ID)
 		return TRUE;
@@ -7039,11 +7125,7 @@ dhdsdio_chipmatch(uint16 chipid)
 		return TRUE;
 	if (chipid == BCM4356_CHIP_ID)
 		return TRUE;
-	if (chipid == BCM4358_CHIP_ID)
-		return TRUE;
 	if (chipid == BCM43430_CHIP_ID)
-		return TRUE;
-	if (BCM4349_CHIP(chipid))
 		return TRUE;
 	return FALSE;
 }
@@ -7083,11 +7165,16 @@ dhdsdio_probe(uint16 venid, uint16 devid, uint16 bus_no, uint16 slot,
 	sd1idle = TRUE;
 	dhd_readahead = TRUE;
 	retrydata = FALSE;
+
+#if defined(DISABLE_FLOW_CONTROL)
+	dhd_doflow = FALSE;
+#else
 #if !defined(PLATFORM_MPS) && !defined(CUSTOMER_HW4)
 	dhd_doflow = FALSE;
 #else
 	dhd_doflow = TRUE;
 #endif /* OEM_ANDROID */
+#endif /* DISABLE_FLOW_CONTROL */
 	dhd_dongle_ramsize = 0;
 	dhd_txminmax = DHD_TXMINMAX;
 
@@ -7171,6 +7258,10 @@ dhdsdio_probe(uint16 venid, uint16 devid, uint16 bus_no, uint16 slot,
 	bus->tx_seq = SDPCM_SEQUENCE_WRAP - 1;
 	bus->usebufpool = FALSE; /* Use bufpool if allocated, else use locally malloced rxbuf */
 
+#if defined(SUPPORT_P2P_GO_PS)
+	init_waitqueue_head(&bus->bus_sleep);
+#endif /* LINUX && SUPPORT_P2P_GO_PS */
+
 	/* attempt to attach to the dongle */
 	if (!(dhdsdio_probe_attach(bus, osh, sdh, regsva, devid))) {
 		DHD_ERROR(("%s: dhdsdio_probe_attach failed\n", __FUNCTION__));
@@ -7235,23 +7326,12 @@ dhdsdio_probe(uint16 venid, uint16 devid, uint16 bus_no, uint16 slot,
 		goto fail;
 	}
 
-#if defined(CUSTOMER_HW4) && defined(BCMHOST_XTAL_PU_TIME_MOD)
-	bcmsdh_reg_write(bus->sdh, 0x18000620, 2, 11);
-#ifdef BCM4330_CHIP
-	bcmsdh_reg_write(bus->sdh, 0x18000628, 4, 0x0000F801);
-#else
-	bcmsdh_reg_write(bus->sdh, 0x18000628, 4, 0x00F80001);
-#endif /* BCM4330_CHIP */
-#endif /* defined(CUSTOMER_HW4) && defined(BCMHOST_XTAL_PU_TIME_MOD */
-
 #if defined(MULTIPLE_SUPPLICANT)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25))
 	mutex_unlock(&_dhd_sdio_mutex_lock_);
 	DHD_ERROR(("%s : the lock is released.\n", __FUNCTION__));
 #endif /* (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)) */
 #endif 
-
-	init_waitqueue_head(&bus->bus_sleep);
 
 	return bus;
 
@@ -7564,11 +7644,6 @@ dhdsdio_probe_attach(struct dhd_bus *bus, osl_t *osh, void *sdh, void *regsva,
 		DHD_ERROR(("%s: FAILED to return to SI_ENUM_BASE\n", __FUNCTION__));
 	}
 
-#if defined(DHD_DEBUG) && !defined(CUSTOMER_HW4)
-	DHD_ERROR(("F1 signature read @0x18000000=0x%4x\n",
-		bcmsdh_reg_read(bus->sdh, SI_ENUM_BASE, 4)));
-#endif /* DHD_DEBUG && !CUSTOMER_HW4 */
-
 #ifndef BCMSPI	/* wake-wlan in gSPI will bring up the htavail/alpavail clocks. */
 
 	/* Force PLL off until si_attach() programs PLL control regs */
@@ -7706,17 +7781,15 @@ dhdsdio_probe_attach(struct dhd_bus *bus, osl_t *osh, void *sdh, void *regsva,
 			case BCM4350_CHIP_ID:
 			case BCM4354_CHIP_ID:
 			case BCM4356_CHIP_ID:
-			case BCM4358_CHIP_ID:
 				bus->dongle_ram_base = CR4_4350_RAM_BASE;
 				break;
 			case BCM4360_CHIP_ID:
 				bus->dongle_ram_base = CR4_4360_RAM_BASE;
 				break;
 			case BCM4345_CHIP_ID:
-				bus->dongle_ram_base = CR4_4345_RAM_BASE;
-				break;
-			case BCM4349_CHIP_GRPID:
-				bus->dongle_ram_base = CR4_4349_RAM_BASE;
+			case BCM43454_CHIP_ID:
+				bus->dongle_ram_base = (bus->sih->chiprev < 6)  /* from 4345C0 */
+					? CR4_4345_LT_C0_RAM_BASE : CR4_4345_GE_C0_RAM_BASE;
 				break;
 			default:
 				bus->dongle_ram_base = 0;
@@ -7801,8 +7874,9 @@ dhdsdio_probe_malloc(dhd_bus_t *bus, osl_t *osh, void *sdh)
 		DHD_ERROR(("%s: MALLOC of %d-byte databuf failed\n",
 			__FUNCTION__, MAX_DATA_BUF));
 		/* release rxbuf which was already located as above */
-		if (!bus->rxblen)
-			DHD_OS_PREFREE(bus->dhd, bus->rxbuf, bus->rxblen);
+		if (bus->rxbuf) {
+			DHD_OS_PREFREE(bus->dhd, DHD_PREALLOC_RXBUF, bus->rxbuf, bus->rxblen);
+		}
 		goto fail;
 	}
 
@@ -7885,7 +7959,6 @@ dhdsdio_probe_init(dhd_bus_t *bus, osl_t *osh, void *sdh)
 	}
 	bus->roundup = MIN(max_roundup, bus->blocksize);
 
-#ifdef DHDENABLE_TAILPAD
 	if (bus->pad_pkt)
 		PKTFREE(osh, bus->pad_pkt, FALSE);
 	bus->pad_pkt = PKTGET(osh, SDIO_MAX_BLOCK_SIZE, FALSE);
@@ -7898,7 +7971,6 @@ dhdsdio_probe_init(dhd_bus_t *bus, osl_t *osh, void *sdh)
 			PKTPUSH(osh, bus->pad_pkt, alignment_offset);
 		PKTSETNEXT(osh, bus->pad_pkt, NULL);
 	}
-#endif /* DHDENABLE_TAILPAD */
 
 	/* Query if bus module supports packet chaining, default to use if supported */
 	if (bcmsdh_iovar_op(sdh, "sd_rxchain", NULL, 0,
@@ -7944,7 +8016,8 @@ dhdsdio_download_firmware(struct dhd_bus *bus, osl_t *osh, void *sdh)
 	int ret;
 
 #if defined(SUPPORT_MULTIPLE_REVISION)
-	if (concate_revision(bus, bus->fw_path, bus->nv_path) != 0) {
+	if (concate_revision(bus, bus->fw_path, strlen(bus->fw_path) + 1,
+		bus->nv_path, strlen(bus->nv_path)+ 1) != 0) {
 		DHD_ERROR(("%s: fail to concatnate revison \n",
 			__FUNCTION__));
 		return BCME_BADARG;
@@ -7998,10 +8071,8 @@ dhdsdio_release(dhd_bus_t *bus, osl_t *osh)
 			MFREE(osh, bus->console.buf, bus->console.bufsize);
 #endif
 
-#ifdef DHDENABLE_TAILPAD
 		if (bus->pad_pkt)
 			PKTFREE(osh, bus->pad_pkt, FALSE);
-#endif /* DHDENABLE_TAILPAD */
 
 		MFREE(osh, bus, sizeof(dhd_bus_t));
 	}
@@ -8112,19 +8183,23 @@ dhdsdio_suspend(void *context)
 	int ret = 0;
 
 	dhd_bus_t *bus = (dhd_bus_t*)context;
+#ifdef SUPPORT_P2P_GO_PS
 	int wait_time = 0;
+
 	if (bus->idletime > 0) {
 		wait_time = msecs_to_jiffies(bus->idletime * dhd_watchdog_ms);
 	}
-
+#endif /* SUPPORT_P2P_GO_PS */
 	ret = dhd_os_check_wakelock(bus->dhd);
-	if ((!ret) && (bus->dhd->up)) {
+#ifdef SUPPORT_P2P_GO_PS
+	if ((!ret) && (bus->dhd->up) && (bus->dhd->op_mode != DHD_FLAG_HOSTAP_MODE)) {
 		if (wait_event_timeout(bus->bus_sleep, bus->sleeping, wait_time) == 0) {
 			if (!bus->sleeping) {
 				return 1;
 			}
 		}
 	}
+#endif /* SUPPORT_P2P_GO_PS */
 	return ret;
 }
 
@@ -8602,12 +8677,6 @@ dhd_bus_txq(struct dhd_bus *bus)
 	return &bus->txq;
 }
 
-uint
-dhd_bus_hdrlen(struct dhd_bus *bus)
-{
-	return (bus->txglom_enable) ? SDPCM_HDRLEN_TXGLOM : SDPCM_HDRLEN;
-}
-
 void
 dhd_bus_set_dotxinrx(struct dhd_bus *bus, bool val)
 {
@@ -8785,7 +8854,8 @@ concate_revision_bcm4330(dhd_bus_t *bus)
 }
 
 static int
-concate_revision_bcm4334(dhd_bus_t *bus, char *fw_path, char *nv_path)
+concate_revision_bcm4334(dhd_bus_t *bus,
+	char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
 {
 #define	REV_ID_ADDR	0x1E008F90
 #define BCM4334_B1_UNIQUE	0x30312E36
@@ -8838,7 +8908,8 @@ concate_revision_bcm4334(dhd_bus_t *bus, char *fw_path, char *nv_path)
 }
 
 static int
-concate_revision_bcm4335(dhd_bus_t *bus, char *fw_path, char *nv_path)
+concate_revision_bcm4335
+	(dhd_bus_t *bus, char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
 {
 
 	uint chipver;
@@ -8871,7 +8942,8 @@ concate_revision_bcm4335(dhd_bus_t *bus, char *fw_path, char *nv_path)
 }
 
 static int
-concate_revision_bcm4339(dhd_bus_t *bus, char *fw_path, char *nv_path)
+concate_revision_bcm4339
+	(dhd_bus_t *bus, char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
 {
 
 	uint chipver;
@@ -8902,8 +8974,10 @@ concate_revision_bcm4339(dhd_bus_t *bus, char *fw_path, char *nv_path)
 }
 
 static int
-concate_revision_bcm43349(dhd_bus_t *bus, char *fw_path, char *nv_path)
+concate_revision_bcm43349
+	(dhd_bus_t *bus, char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
 {
+
 	uint chipver;
 #if defined(SUPPORT_MULTIPLE_CHIPS)
 	char chipver_tag[10] = "_43349";
@@ -8922,7 +8996,8 @@ concate_revision_bcm43349(dhd_bus_t *bus, char *fw_path, char *nv_path)
 		DHD_ERROR(("----- CHIP bcm43349_A0 -----\n"));
 		strcat(chipver_tag, "_a0");
 	} else {
-		DHD_ERROR(("----- CHIP bcm43349 unknown revision %d -----\n", chipver));
+		DHD_ERROR(("----- CHIP bcm43349 unknown revision %d -----\n",
+			chipver));
 	}
 
 	strcat(fw_path, chipver_tag);
@@ -8930,7 +9005,8 @@ concate_revision_bcm43349(dhd_bus_t *bus, char *fw_path, char *nv_path)
 	return 0;
 }
 
-static int concate_revision_bcm43241(dhd_bus_t *bus, char *fw_path, char *nv_path)
+static int concate_revision_bcm43241(dhd_bus_t *bus,
+	char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
 {
 	uint32 chip_id, chip_ver;
 #if defined(SUPPORT_MULTIPLE_CHIPS)
@@ -8960,7 +9036,8 @@ static int concate_revision_bcm43241(dhd_bus_t *bus, char *fw_path, char *nv_pat
 	return 0;
 }
 
-static int concate_revision_bcm4350(dhd_bus_t *bus, char *fw_path, char *nv_path)
+static int concate_revision_bcm4350(dhd_bus_t *bus,
+        char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
 {
 	uint32 chip_id, chip_ver;
 #if defined(SUPPORT_MULTIPLE_CHIPS)
@@ -8990,7 +9067,8 @@ static int concate_revision_bcm4350(dhd_bus_t *bus, char *fw_path, char *nv_path
 	return 0;
 }
 
-static int concate_revision_bcm4354(dhd_bus_t *bus, char *fw_path, char *nv_path)
+static int concate_revision_bcm4354(dhd_bus_t *bus,
+        char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
 {
 	uint32 chip_id, chip_ver;
 #if defined(SUPPORT_MULTIPLE_CHIPS)
@@ -9020,8 +9098,150 @@ static int concate_revision_bcm4354(dhd_bus_t *bus, char *fw_path, char *nv_path
 	return 0;
 }
 
+static int concate_revision_bcm4356(dhd_bus_t *bus,
+        char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
+{
+	uint32 chip_id, chip_ver;
+#if defined(SUPPORT_MULTIPLE_CHIPS)
+	char chipver_tag[10] = "_4356";
+#else
+	char chipver_tag[4] = {0, };
+#endif /* SUPPORT_MULTIPLE_CHIPS */
+
+	chip_id = bus->sih->chip;
+	chip_ver = bus->sih->chiprev;
+	if (chip_ver == 0x2) {
+		DHD_ERROR(("----- CHIP 4356 A2 -----\n"));
+		strcat(chipver_tag, "_a2");
+	} else {
+		DHD_ERROR(("----- Unknown chip version, ver=%x -----\n", chip_ver));
+	}
+
+	strcat(fw_path, chipver_tag);
+	strcat(nv_path, chipver_tag);
+
+	return 0;
+}
+
+static int concate_revision_bcm43341(dhd_bus_t *bus,
+        char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
+{
+	uint chipver;
+#if defined(SUPPORT_MULTIPLE_CHIPS)
+	char chipver_tag[10] = "_43341";
+#else
+	char chipver_tag[4] = {0, };
+#endif /* defined(SUPPORT_MULTIPLE_CHIPS) */
+
+	DHD_TRACE(("%s: BCM43341 Multiple Revision Check\n", __FUNCTION__));
+	if (bus->sih->chip != BCM43341_CHIP_ID) {
+		DHD_ERROR(("%s:Chip is not BCM43341\n", __FUNCTION__));
+		return -1;
+	}
+	chipver = bus->sih->chiprev;
+	DHD_ERROR(("CHIP VER = [0x%x]\n", chipver));
+	if (chipver == 0x1) {
+		DHD_ERROR(("----- CHIP bcm43341_A0 -----\n"));
+		strcat(chipver_tag, "_a0");
+	} else if (chipver == 0x2) {
+		DHD_ERROR(("----- CHIP bcm43341_B0 -----\n"));
+		strcat(chipver_tag, "_b0");
+	} else {
+		DHD_ERROR(("----- CHIP bcm43341 unknown revision %d -----\n",
+			chipver));
+	}
+
+	strcat(fw_path, chipver_tag);
+	strcat(nv_path, chipver_tag);
+	return 0;
+}
+
+#if !defined(MULTIPLE_CHIP_4345X)
+static int
+concate_revision_bcm43454(dhd_bus_t *bus,
+	char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
+{
+	char chipver_tag[10] = {0, };
+#ifdef SUPPORT_MULTIPLE_BOARD_REV_FROM_DT
+	int base_system_rev_for_nv = 0;
+#endif /* SUPPORT_MULTIPLE_BOARD_REV_FROM_DT */
+
+	DHD_TRACE(("%s: BCM43454 Multiple Revision Check\n", __FUNCTION__));
+	if (bus->sih->chip != BCM43454_CHIP_ID) {
+		DHD_ERROR(("%s:Chip is not BCM43454!\n", __FUNCTION__));
+		return -1;
+	}
+#ifdef SUPPORT_MULTIPLE_BOARD_REV_FROM_DT
+	base_system_rev_for_nv = dhd_get_system_rev();
+	if (base_system_rev_for_nv > 0) {
+		DHD_ERROR(("----- Board Rev  [%d] -----\n", base_system_rev_for_nv));
+		sprintf(chipver_tag, "_r%02d", base_system_rev_for_nv);
+	}
+#endif /* SUPPORT_MULTIPLE_BOARD_REV_FROM_DT */
+#ifdef SUPPORT_MULTIPLE_BOARD_REV_FROM_HW
+	DHD_ERROR(("----- Rev [%d] Fot MULTIPLE Board. -----\n", system_hw_rev));
+	if ((system_hw_rev >= 8) && (system_hw_rev <= 11)) {
+		DHD_ERROR(("This HW is Rev 08 ~ 11. this is For FD-HW\n"));
+		strcat(chipver_tag, "_FD");
+	}
+#endif /* SUPPORT_MULTIPLE_BOARD_REV_FROM_HW */
+
+	strcat(nv_path, chipver_tag);
+	return 0;
+}
+
+static int
+concate_revision_bcm43455(dhd_bus_t *bus,
+        char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
+{
+	char chipver_tag[10] = {0, };
+#ifdef SUPPORT_MULTIPLE_BOARD_REV_FROM_DT
+	int base_system_rev_for_nv = 0;
+#endif /* SUPPORT_MULTIPLE_BOARD_REV_FROM_DT */
+
+	DHD_TRACE(("%s: BCM43455 Multiple Revision Check\n", __FUNCTION__));
+	if (bus->sih->chip != BCM4345_CHIP_ID) {
+		DHD_ERROR(("%s:Chip is not BCM43455!\n", __FUNCTION__));
+		return -1;
+	}
+#ifdef SUPPORT_MULTIPLE_BOARD_REV_FROM_DT
+	base_system_rev_for_nv = dhd_get_system_rev();
+	if (base_system_rev_for_nv > 0) {
+		DHD_ERROR(("----- Board Rev  [%d]-----\n", base_system_rev_for_nv));
+		sprintf(chipver_tag, "_r%02d", base_system_rev_for_nv);
+	}
+#endif /* SUPPORT_MULTIPLE_BOARD_REV_FROM_DT */
+	strcat(nv_path, chipver_tag);
+	return 0;
+}
+#endif /* !defined(MULTIPLE_CHIP_4345X) */
+
+#if defined(MULTIPLE_CHIP_4345X)
+static int
+concate_revision_bcm4345x(dhd_bus_t *bus,
+        char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
+{
+	uint32 chip_id;
+	char chipver_tag[10] = "_43454";
+
+	chip_id = bus->sih->chip;
+
+	if (chip_id == BCM43454_CHIP_ID) {
+		DHD_ERROR(("----- CHIP 43454 -----\n"));
+		strcat(fw_path, chipver_tag);
+		strcat(nv_path, chipver_tag);
+	} else if (chip_id == BCM4345_CHIP_ID) {
+		DHD_ERROR(("----- CHIP 43455  -----\n"));
+	} else {
+		DHD_ERROR(("----- Unknown chip , id r=%x -----\n", chip_id));
+	}
+
+	return 0;
+}
+#endif /* MULTIPLE_CHIP_4345X */
+
 int
-concate_revision(dhd_bus_t *bus, char *fw_path, char *nv_path)
+concate_revision(dhd_bus_t *bus, char *fw_path, int fw_path_len, char *nv_path, int nv_path_len)
 {
 	int res = 0;
 
@@ -9040,27 +9260,49 @@ concate_revision(dhd_bus_t *bus, char *fw_path, char *nv_path)
 		res = concate_revision_bcm4330(bus);
 		break;
 	case BCM4334_CHIP_ID:
-		res = concate_revision_bcm4334(bus, fw_path, nv_path);
+		res =  concate_revision_bcm4334(bus, fw_path, fw_path_len,
+			nv_path, nv_path_len);
 		break;
 	case BCM4335_CHIP_ID:
-		res = concate_revision_bcm4335(bus, fw_path, nv_path);
-
+		res = concate_revision_bcm4335(bus, fw_path, fw_path_len,
+			nv_path, nv_path_len);
 		break;
 	case BCM4339_CHIP_ID:
-		res = concate_revision_bcm4339(bus, fw_path, nv_path);
+		res = concate_revision_bcm4339(bus, fw_path, fw_path_len,
+			nv_path, nv_path_len);
 		break;
 	case BCM43349_CHIP_ID:
-		res = concate_revision_bcm43349(bus, fw_path, nv_path);
+		res = concate_revision_bcm43349(bus, fw_path, fw_path_len,
+			nv_path, nv_path_len);
 		break;
 	case BCM4324_CHIP_ID:
-		res = concate_revision_bcm43241(bus, fw_path, nv_path);
+		res = concate_revision_bcm43241(bus, fw_path, fw_path_len, nv_path, nv_path_len);
 		break;
 	case BCM4350_CHIP_ID:
-		res = concate_revision_bcm4350(bus, fw_path, nv_path);
+		res = concate_revision_bcm4350(bus, fw_path, fw_path_len, nv_path, nv_path_len);
 		break;
 	case BCM4354_CHIP_ID:
-		res = concate_revision_bcm4354(bus, fw_path, nv_path);
+		res = concate_revision_bcm4354(bus, fw_path, fw_path_len, nv_path, nv_path_len);
 		break;
+	case BCM4356_CHIP_ID:
+		res = concate_revision_bcm4356(bus, fw_path, fw_path_len, nv_path, nv_path_len);
+		break;
+	case BCM43341_CHIP_ID:
+		res = concate_revision_bcm43341(bus, fw_path, fw_path_len, nv_path, nv_path_len);
+		break;
+#if defined(MULTIPLE_CHIP_4345X)
+	case BCM43454_CHIP_ID:
+	case BCM4345_CHIP_ID:
+		res = concate_revision_bcm4345x(bus, fw_path, fw_path_len, nv_path, nv_path_len);
+		break;
+#else /* MULTIPLE_CHIP_4345X */
+	case BCM43454_CHIP_ID:
+		res = concate_revision_bcm43454(bus, fw_path, fw_path_len, nv_path, nv_path_len);
+		break;
+	case BCM4345_CHIP_ID:
+		res = concate_revision_bcm43455(bus, fw_path, fw_path_len, nv_path, nv_path_len);
+		break;
+#endif /* MULTIPLE_CHIP_4345X */
 
 	default:
 		DHD_ERROR(("REVISION SPECIFIC feature is not required\n"));
@@ -9137,7 +9379,6 @@ dhd_bus_pktq_flush(dhd_pub_t *dhdp)
 	}
 }
 
-#ifdef BCMSDIO
 int
 dhd_sr_config(dhd_pub_t *dhd, bool on)
 {
@@ -9159,7 +9400,6 @@ dhd_get_chipid(dhd_pub_t *dhd)
 	else
 		return 0;
 }
-#endif /* BCMSDIO */
 
 #ifdef DEBUGGER
 uint32 dhd_sdio_reg_read(void *h, uint32 addr)

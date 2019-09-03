@@ -63,6 +63,7 @@
 #include <linux/sched/rt.h>
 #include <linux/freezer.h>
 #include <linux/hugetlb.h>
+#include <linux/freezer.h>
 
 #include <asm/futex.h>
 
@@ -1431,6 +1432,9 @@ static int futex_requeue(u32 __user *uaddr1, unsigned int flags,
 	struct futex_hash_bucket *hb1, *hb2;
 	struct plist_head *head1;
 	struct futex_q *this, *next;
+
+	if (nr_wake < 0 || nr_requeue < 0)
+		return -EINVAL;
 
 	if (nr_wake < 0 || nr_requeue < 0)
 		return -EINVAL;

@@ -37,6 +37,8 @@
 #define ASHMEM_NAME_PREFIX_LEN (sizeof(ASHMEM_NAME_PREFIX) - 1)
 #define ASHMEM_FULL_NAME_LEN (ASHMEM_NAME_LEN + ASHMEM_NAME_PREFIX_LEN)
 
+extern int boot_mode_security;
+
 /*
  * ashmem_area - anonymous shared memory area
  * Lifecycle: From our parent file's open() until its release()
@@ -293,14 +295,12 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct ashmem_area *asma = file->private_data;
 	int ret = 0;
-#ifdef CONFIG_TIMA_RKP	
-	if ((vma->vm_end - vma->vm_start) && (boot_mode_security == 1)) {
+#ifdef CONFIG_TIMA_RKP
+#ifdef CONFIG_IOMMU_OPT
+	if (boot_mode_security && vma->vm_end - vma->vm_start) {
 		cpu_v7_tima_iommu_opt(vma->vm_start, vma->vm_end, (unsigned long)vma->vm_mm->pgd);
-		__asm__ __volatile__ (
-		"mcr    p15, 0, r0, c8, c3, 0\n"
-		"dsb\n"
-		"isb\n");
 	}
+#endif
 #endif
 	mutex_lock(&ashmem_mutex);
 
@@ -342,7 +342,6 @@ static int ashmem_mmap(struct file *file, struct vm_area_struct *vma)
 			fput(vma->vm_file);
 		vma->vm_file = asma->file;
 	}
-	asma->vm_start = vma->vm_start;
 
 out:
 	mutex_unlock(&ashmem_mutex);
@@ -374,8 +373,10 @@ static int ashmem_shrink(struct shrinker *s, struct shrink_control *sc)
 	if (!sc->nr_to_scan)
 		return lru_count;
 
-	if (!mutex_trylock(&ashmem_mutex))
+	/* avoid recursing into this code from within ashmem itself */
+	if (!mutex_trylock(&ashmem_mutex)) {
 		return -1;
+	}
 
 	list_for_each_entry_safe(range, next, &ashmem_lru_list, lru) {
 		loff_t start = range->pgstart * PAGE_SIZE;

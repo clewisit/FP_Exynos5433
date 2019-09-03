@@ -39,10 +39,6 @@
 #include <linux/fcntl.h>
 #include <linux/fs.h>
 
-#if defined(OTP_WRITE_ON)
-#include <dhd_custom_sec_otpbinary.h>
-#endif /* OTP_WRITE_ON */
-
 struct dhd_info;
 extern int _dhd_set_mac_address(struct dhd_info *dhd,
 	int ifidx, struct ether_addr *addr);
@@ -193,6 +189,10 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"AW", "AW", 2},
 	{"AU", "AU", 6},
 	{"AT", "AT", 4},
+#if defined(BCM43454_CHIP) || defined(BCM43455_CHIP)
+	{"AM", "AM", 1},
+	{"MY", "MY", 19},
+#endif /* BCM43454_CHIP || BCM43455 */
 	{"AZ", "AZ", 2},
 	{"BS", "BS", 2},
 	{"BH", "BH", 4},
@@ -232,7 +232,6 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"IE", "IE", 5},
 	{"IL", "IL", 14},
 	{"IT", "IT", 4},
-	{"JP", "JP", 968},
 	{"JO", "JO", 3},
 	{"KE", "SA", 0},
 	{"KW", "KW", 5},
@@ -246,7 +245,6 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"MO", "SG", 0},
 	{"MK", "MK", 2},
 	{"MW", "MW", 1},
-	{"MY", "MY", 3},
 	{"MV", "MV", 3},
 	{"MT", "MT", 4},
 	{"MQ", "MQ", 2},
@@ -284,7 +282,11 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"TW", "TW", 1},
 	{"TH", "TH", 5},
 	{"TT", "TT", 3},
+#if defined(DHD_SUPPORT_TR_212)
+	{"TR", "TR", 212},
+#else
 	{"TR", "TR", 7},
+#endif
 	{"AE", "AE", 6},
 	{"GB", "GB", 6},
 	{"UY", "VE", 3},
@@ -295,13 +297,16 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"ZM", "LA", 2},
 	{"EC", "EC", 21},
 	{"SV", "SV", 25},
-#ifdef BCM4358_CHIP
 	{"KR", "KR", 70},
-#else
-	{"KR", "KR", 48},
-#endif
-	{"RU", "RU", 988},
+#if defined(BCM4354_CHIP) || defined(BCM43454_CHIP) || defined(BCM43455_CHIP)
+	{"JP", "JP", 968},
+	{"RU", "RU", 986},
 	{"UA", "UA", 16},
+#else
+	{"JP", "JP", 45},
+	{"RU", "RU", 13},
+	{"UA", "UA", 8},
+#endif /* BCM4354_CHIP || BCM43454_CHIP || BCM43455_CHIP */
 	{"GT", "GT", 1},
 	{"MN", "MN", 1},
 	{"NI", "NI", 2},
@@ -316,7 +321,7 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"BO", "NG", 0},
 	{"UM", "PR", 38},
 	/* Support FCC 15.407 (Part 15E) Changes, effective June 2 2014 */
-	/* US/988, Q2/993 country code with higher power on UNII-1 5G band */
+	/* US/988, Q2/993 country codes with higher power on UNII-1 5G band */
 	{"US", "US", 988},
 	{"CU", "US", 988},
 	{"CA", "Q2", 993},
@@ -358,7 +363,6 @@ void get_customized_country_code(void *adapter, char *country_iso_code, wl_count
 #define REVINFO "/opt/etc/.rev"
 #define WIFIVERINFO "/opt/etc/.wifiver.info"
 #define ANTINFO "/opt/etc/.ant.info"
-#define MEMDUMPINFO "/opt/etc/.memdump.info"
 #define WRMAC_BUF_SIZE 19
 #else
 #define MACINFO "/data/.mac.info"
@@ -369,7 +373,6 @@ void get_customized_country_code(void *adapter, char *country_iso_code, wl_count
 #define PSMINFO "/data/.psm.info"
 #define WIFIVERINFO "/data/.wifiver.info"
 #define ANTINFO "/data/.ant.info"
-#define MEMDUMPINFO "/data/.memdump.info"
 #define WRMAC_BUF_SIZE 18
 #endif /* PLATFORM_SLP */
 
@@ -469,6 +472,390 @@ start_readmac:
 }
 #endif /* READ_MACADDR */
 
+#ifdef RDWR_MACADDR
+static int g_imac_flag;
+
+enum {
+	MACADDR_NONE = 0,
+	MACADDR_MOD,
+	MACADDR_MOD_RANDOM,
+	MACADDR_MOD_NONE,
+	MACADDR_COB,
+	MACADDR_COB_RANDOM
+};
+
+int dhd_write_rdwr_macaddr(struct ether_addr *mac)
+{
+	char *filepath_data = MACINFO;
+	char *filepath_efs = MACINFO_EFS;
+	struct file *fp_mac = NULL;
+	char buf[18]      = {0};
+	mm_segment_t oldfs    = {0};
+	int ret = -1;
+
+	if ((g_imac_flag != MACADDR_COB) && (g_imac_flag != MACADDR_MOD))
+		return 0;
+
+	sprintf(buf, "%02X:%02X:%02X:%02X:%02X:%02X\n",
+		mac->octet[0], mac->octet[1], mac->octet[2],
+		mac->octet[3], mac->octet[4], mac->octet[5]);
+
+	/* /efs/wifi/.mac.info will be created */
+	fp_mac = filp_open(filepath_efs, O_RDWR | O_CREAT, 0666);
+	if (IS_ERR(fp_mac)) {
+		DHD_ERROR(("[WIFI_SEC] %s: File open error\n", filepath_data));
+		return -1;
+	}	else {
+		oldfs = get_fs();
+		set_fs(get_ds());
+
+		if (fp_mac->f_mode & FMODE_WRITE) {
+			ret = fp_mac->f_op->write(fp_mac, (const char *)buf,
+				sizeof(buf), &fp_mac->f_pos);
+			if (ret < 0)
+				DHD_ERROR(("[WIFI_SEC] Mac address [%s] Failed"
+				" to write into File: %s\n", buf, filepath_data));
+			else
+				DHD_INFO(("[WIFI_SEC] Mac address [%s] written"
+				" into File: %s\n", buf, filepath_data));
+		}
+		set_fs(oldfs);
+		filp_close(fp_mac, NULL);
+	}
+	/* /data/.mac.info will be created */
+	fp_mac = filp_open(filepath_data, O_RDWR | O_CREAT, 0666);
+	if (IS_ERR(fp_mac)) {
+		DHD_ERROR(("[WIFI_SEC] %s: File open error\n", filepath_efs));
+		return -1;
+	}	else {
+		oldfs = get_fs();
+		set_fs(get_ds());
+
+		if (fp_mac->f_mode & FMODE_WRITE) {
+			ret = fp_mac->f_op->write(fp_mac, (const char *)buf,
+				sizeof(buf), &fp_mac->f_pos);
+			if (ret < 0)
+				DHD_ERROR(("[WIFI_SEC] Mac address [%s] Failed"
+				" to write into File: %s\n", buf, filepath_efs));
+			else
+				DHD_INFO(("[WIFI_SEC] Mac address [%s] written"
+				" into File: %s\n", buf, filepath_efs));
+		}
+		set_fs(oldfs);
+		filp_close(fp_mac, NULL);
+	}
+
+	return 0;
+
+}
+
+int dhd_check_rdwr_macaddr(struct dhd_info *dhd, dhd_pub_t *dhdp,
+	struct ether_addr *mac)
+{
+	struct file *fp_mac = NULL;
+	struct file *fp_nvm = NULL;
+	char macbuffer[18]    = {0};
+	char randommac[3]   = {0};
+	char buf[18]      = {0};
+	char *filepath_data      = MACINFO;
+	char *filepath_efs      = MACINFO_EFS;
+#ifdef CONFIG_TARGET_LOCALE_NA
+	char *nvfilepath       = "/data/misc/wifi/.nvmac.info";
+#else
+	char *nvfilepath = "/efs/wifi/.nvmac.info";
+#endif
+	char cur_mac[128]   = {0};
+	char dummy_mac[ETHER_ADDR_LEN] = {0x00, 0x90, 0x4C, 0xC5, 0x12, 0x38};
+	char cur_macbuffer[18]  = {0};
+	int ret = -1;
+
+	g_imac_flag = MACADDR_NONE;
+
+	fp_nvm = filp_open(nvfilepath, O_RDONLY, 0);
+	if (IS_ERR(fp_nvm)) { /* file does not exist */
+
+		/* read MAC Address */
+		strcpy(cur_mac, "cur_etheraddr");
+		ret = dhd_wl_ioctl_cmd(dhdp, WLC_GET_VAR, cur_mac,
+			sizeof(cur_mac), 0, 0);
+		if (ret < 0) {
+			DHD_ERROR(("[WIFI_SEC] Current READ MAC error \r\n"));
+			memset(cur_mac, 0, ETHER_ADDR_LEN);
+			return -1;
+		} else {
+			DHD_ERROR(("[WIFI_SEC] MAC (OTP) : "
+			"[%02X:%02X:%02X:%02X:%02X:%02X] \r\n",
+			cur_mac[0], cur_mac[1], cur_mac[2], cur_mac[3],
+			cur_mac[4], cur_mac[5]));
+		}
+
+		sprintf(cur_macbuffer, "%02X:%02X:%02X:%02X:%02X:%02X\n",
+			cur_mac[0], cur_mac[1], cur_mac[2],
+			cur_mac[3], cur_mac[4], cur_mac[5]);
+
+		fp_mac = filp_open(filepath_data, O_RDONLY, 0);
+		if (IS_ERR(fp_mac)) { /* file does not exist */
+			/* read mac is the dummy mac (00:90:4C:C5:12:38) */
+			if (memcmp(cur_mac, dummy_mac, ETHER_ADDR_LEN) == 0)
+				g_imac_flag = MACADDR_MOD_RANDOM;
+			else if (strncmp(buf, "00:00:00:00:00:00", 17) == 0)
+				g_imac_flag = MACADDR_MOD_RANDOM;
+			else
+				g_imac_flag = MACADDR_MOD;
+		} else {
+			int is_zeromac;
+
+			ret = kernel_read(fp_mac, 0, buf, 18);
+			filp_close(fp_mac, NULL);
+			buf[17] = '\0';
+
+			is_zeromac = strncmp(buf, "00:00:00:00:00:00", 17);
+			DHD_ERROR(("[WIFI_SEC] MAC (FILE): [%s] [%d] \r\n",
+				buf, is_zeromac));
+
+			if (is_zeromac == 0) {
+				DHD_ERROR(("[WIFI_SEC] Zero MAC detected."
+					" Trying Random MAC.\n"));
+				g_imac_flag = MACADDR_MOD_RANDOM;
+			} else {
+				sscanf(buf, "%02X:%02X:%02X:%02X:%02X:%02X",
+					(unsigned int *)&(mac->octet[0]),
+					(unsigned int *)&(mac->octet[1]),
+					(unsigned int *)&(mac->octet[2]),
+					(unsigned int *)&(mac->octet[3]),
+					(unsigned int *)&(mac->octet[4]),
+					(unsigned int *)&(mac->octet[5]));
+			/* current MAC address is same as previous one */
+				if (memcmp(cur_mac, mac->octet, ETHER_ADDR_LEN) == 0) {
+					g_imac_flag = MACADDR_NONE;
+				} else { /* change MAC address */
+					if (_dhd_set_mac_address(dhd, 0, mac) == 0) {
+						DHD_INFO(("[WIFI_SEC] %s: MACID is"
+						" overwritten\n", __FUNCTION__));
+						g_imac_flag = MACADDR_MOD;
+					} else {
+						DHD_ERROR(("[WIFI_SEC] %s: "
+						"_dhd_set_mac_address()"
+						" failed\n", __FUNCTION__));
+						g_imac_flag = MACADDR_NONE;
+					}
+				}
+			}
+		}
+		fp_mac = filp_open(filepath_efs, O_RDONLY, 0);
+		if (IS_ERR(fp_mac)) { /* file does not exist */
+			/* read mac is the dummy mac (00:90:4C:C5:12:38) */
+			if (memcmp(cur_mac, dummy_mac, ETHER_ADDR_LEN) == 0)
+				g_imac_flag = MACADDR_MOD_RANDOM;
+			else if (strncmp(buf, "00:00:00:00:00:00", 17) == 0)
+				g_imac_flag = MACADDR_MOD_RANDOM;
+			else
+				g_imac_flag = MACADDR_MOD;
+		} else {
+			int is_zeromac;
+
+			ret = kernel_read(fp_mac, 0, buf, 18);
+			filp_close(fp_mac, NULL);
+			buf[17] = '\0';
+
+			is_zeromac = strncmp(buf, "00:00:00:00:00:00", 17);
+			DHD_ERROR(("[WIFI_SEC] MAC (FILE): [%s] [%d] \r\n",
+				buf, is_zeromac));
+
+			if (is_zeromac == 0) {
+				DHD_ERROR(("[WIFI_SEC] Zero MAC detected."
+					" Trying Random MAC.\n"));
+				g_imac_flag = MACADDR_MOD_RANDOM;
+			} else {
+				sscanf(buf, "%02X:%02X:%02X:%02X:%02X:%02X",
+					(unsigned int *)&(mac->octet[0]),
+					(unsigned int *)&(mac->octet[1]),
+					(unsigned int *)&(mac->octet[2]),
+					(unsigned int *)&(mac->octet[3]),
+					(unsigned int *)&(mac->octet[4]),
+					(unsigned int *)&(mac->octet[5]));
+			/* current MAC address is same as previous one */
+				if (memcmp(cur_mac, mac->octet, ETHER_ADDR_LEN) == 0) {
+					g_imac_flag = MACADDR_NONE;
+				} else { /* change MAC address */
+					if (_dhd_set_mac_address(dhd, 0, mac) == 0) {
+						DHD_INFO(("[WIFI_SEC] %s: MACID is"
+						" overwritten\n", __FUNCTION__));
+						g_imac_flag = MACADDR_MOD;
+					} else {
+						DHD_ERROR(("[WIFI_SEC] %s: "
+						"_dhd_set_mac_address()"
+						" failed\n", __FUNCTION__));
+						g_imac_flag = MACADDR_NONE;
+					}
+				}
+			}
+		}
+	} else {
+		/* COB type. only COB. */
+		/* Reading the MAC Address from .nvmac.info file
+		 * (the existed file or just created file)
+		 */
+		ret = kernel_read(fp_nvm, 0, buf, 18);
+
+		/* to prevent abnormal string display when mac address
+		 * is displayed on the screen.
+		 */
+		buf[17] = '\0';
+		DHD_ERROR(("[WIFI_SEC] Read MAC : [%s] [%d] \r\n", buf,
+			strncmp(buf, "00:00:00:00:00:00", 17)));
+		if ((buf[0] == '\0') ||
+			(strncmp(buf, "00:00:00:00:00:00", 17) == 0)) {
+			g_imac_flag = MACADDR_COB_RANDOM;
+		} else {
+			sscanf(buf, "%02X:%02X:%02X:%02X:%02X:%02X",
+				(unsigned int *)&(mac->octet[0]),
+				(unsigned int *)&(mac->octet[1]),
+				(unsigned int *)&(mac->octet[2]),
+				(unsigned int *)&(mac->octet[3]),
+				(unsigned int *)&(mac->octet[4]),
+				(unsigned int *)&(mac->octet[5]));
+			/* Writing Newly generated MAC ID to the Dongle */
+			if (_dhd_set_mac_address(dhd, 0, mac) == 0) {
+				DHD_INFO(("[WIFI_SEC] %s: MACID is overwritten\n",
+					__FUNCTION__));
+				g_imac_flag = MACADDR_COB;
+			} else {
+				DHD_ERROR(("[WIFI_SEC] %s: _dhd_set_mac_address()"
+					" failed\n", __FUNCTION__));
+			}
+		}
+		filp_close(fp_nvm, NULL);
+	}
+
+	if ((g_imac_flag == MACADDR_COB_RANDOM) ||
+	    (g_imac_flag == MACADDR_MOD_RANDOM)) {
+		get_random_bytes(randommac, 3);
+		sprintf(macbuffer, "%02X:%02X:%02X:%02X:%02X:%02X\n",
+			0x60, 0xd0, 0xa9, randommac[0], randommac[1],
+			randommac[2]);
+		DHD_ERROR(("[WIFI_SEC] The Random Generated MAC ID : %s\n",
+			macbuffer));
+		sscanf(macbuffer, "%02X:%02X:%02X:%02X:%02X:%02X",
+			(unsigned int *)&(mac->octet[0]),
+			(unsigned int *)&(mac->octet[1]),
+			(unsigned int *)&(mac->octet[2]),
+			(unsigned int *)&(mac->octet[3]),
+			(unsigned int *)&(mac->octet[4]),
+			(unsigned int *)&(mac->octet[5]));
+		if (_dhd_set_mac_address(dhd, 0, mac) == 0) {
+			DHD_INFO(("[WIFI_SEC] %s: MACID is overwritten\n", __FUNCTION__));
+			g_imac_flag = MACADDR_COB;
+		} else {
+			DHD_ERROR(("[WIFI_SEC] %s: _dhd_set_mac_address() failed\n",
+				__FUNCTION__));
+		}
+	}
+
+	return 0;
+}
+#endif /* RDWR_MACADDR */
+
+#ifdef RDWR_KORICS_MACADDR
+int dhd_write_rdwr_korics_macaddr(struct dhd_info *dhd, struct ether_addr *mac)
+{
+	struct file *fp      = NULL;
+	char macbuffer[18]   = {0};
+	mm_segment_t oldfs   = {0};
+	char randommac[3]    = {0};
+	char buf[18]         = {0};
+	char *filepath_efs       = MACINFO_EFS;
+	int is_zeromac       = 0;
+	int ret = 0;
+	/* MAC address copied from efs/wifi.mac.info */
+	fp = filp_open(filepath_efs, O_RDONLY, 0);
+
+	if (IS_ERR(fp)) {
+		/* File Doesn't Exist. Create and write mac addr. */
+		fp = filp_open(filepath_efs, O_RDWR | O_CREAT, 0666);
+		if (IS_ERR(fp)) {
+			DHD_ERROR(("[WIFI_SEC] %s: File open error\n",
+				filepath_efs));
+			return -1;
+		}
+
+		oldfs = get_fs();
+		set_fs(get_ds());
+
+		/* Generating the Random Bytes for
+		 * 3 last octects of the MAC address
+		 */
+		get_random_bytes(randommac, 3);
+
+		sprintf(macbuffer, "%02X:%02X:%02X:%02X:%02X:%02X\n",
+			0x60, 0xd0, 0xa9, randommac[0],
+			randommac[1], randommac[2]);
+		DHD_ERROR(("[WIFI_SEC] The Random Generated MAC ID : %s\n",
+			macbuffer));
+
+		if (fp->f_mode & FMODE_WRITE) {
+			ret = fp->f_op->write(fp,
+				(const char *)macbuffer,
+				sizeof(macbuffer), &fp->f_pos);
+			if (ret < 0)
+				DHD_ERROR(("[WIFI_SEC] Mac address [%s]"
+					" Failed to write into File:"
+					" %s\n", macbuffer, filepath_efs));
+			else
+				DHD_ERROR(("[WIFI_SEC] Mac address [%s]"
+					" written into File: %s\n",
+					macbuffer, filepath_efs));
+		}
+		set_fs(oldfs);
+	} else {
+	/* Reading the MAC Address from .mac.info file
+	 * (the existed file or just created file)
+	 */
+	    ret = kernel_read(fp, 0, buf, 18);
+		/* to prevent abnormal string display when mac address
+		 * is displayed on the screen.
+		 */
+		buf[17] = '\0';
+		/* Remove security log */
+		/* DHD_ERROR(("Read MAC : [%s] [%d] \r\n", buf,
+		 * strncmp(buf, "00:00:00:00:00:00", 17)));
+		 */
+		if ((buf[0] == '\0') ||
+			(strncmp(buf, "00:00:00:00:00:00", 17) == 0)) {
+			is_zeromac = 1;
+		}
+	}
+
+	if (ret)
+		sscanf(buf, "%02X:%02X:%02X:%02X:%02X:%02X",
+			(unsigned int *)&(mac->octet[0]),
+			(unsigned int *)&(mac->octet[1]),
+			(unsigned int *)&(mac->octet[2]),
+			(unsigned int *)&(mac->octet[3]),
+			(unsigned int *)&(mac->octet[4]),
+			(unsigned int *)&(mac->octet[5]));
+	else
+		DHD_INFO(("[WIFI_SEC] dhd_bus_start: Reading from the"
+			" '%s' returns 0 bytes\n", filepath_efs));
+
+	if (fp)
+		filp_close(fp, NULL);
+
+	if (!is_zeromac) {
+		/* Writing Newly generated MAC ID to the Dongle */
+		if (_dhd_set_mac_address(dhd, 0, mac) == 0)
+			DHD_INFO(("[WIFI_SEC] dhd_bus_start: MACID is overwritten\n"));
+		else
+			DHD_ERROR(("[WIFI_SEC] dhd_bus_start: _dhd_set_mac_address() "
+				"failed\n"));
+	} else {
+		DHD_ERROR(("[WIFI_SEC] dhd_bus_start:Is ZeroMAC BypassWrite.mac.info!\n"));
+	}
+
+	return 0;
+}
+#endif /* RDWR_KORICS_MACADDR */
+
 #ifdef USE_CID_CHECK
 static int dhd_write_cid_file(const char *filepath_cid, const char *buf, int buf_len)
 {
@@ -528,6 +915,12 @@ vid_info_t vid_info[] = {
 	{ 2, { 0x99, }, { "semcove" } },
 	{ 0, { 0x00, }, { "samsung" } }
 };
+#elif defined(BCM43430_CHIP)
+vid_info_t vid_info[] = {
+	{ 3, { 0x33, 0x33, }, { "semco" } },
+	{ 3, { 0x00, 0x22, }, { "murata" } },
+	{ 0, { 0x00, }, { "samsung" } }
+};
 #elif defined(BCM4334_CHIP)
 vid_info_t vid_info[] = {
 	{ 6, { 0x00, 0x00, 0x00, 0x33, 0x33, }, { "semco" } },
@@ -545,8 +938,7 @@ vid_info_t vid_info[] = {
 	{ 3, { 0x00, 0x33, }, { "muratafem3" } },	/* 3rd FEM: Reserved */
 	{ 0, { 0x00, }, { "murata" } }	/* Default: for Murata A0 module */
 };
-#elif defined(BCM4339_CHIP) || defined(BCM4354_CHIP) || \
-	defined(BCM4356_CHIP)
+#elif defined(BCM4339_CHIP) || defined(BCM4354_CHIP)
 vid_info_t vid_info[] = {			  /* 4339:2G FEM+5G FEM ,4354: 2G FEM+5G FEM */
 	{ 3, { 0x33, 0x33, }, { "semco" } },      /* 4339:Skyworks+sharp,4354:Panasonic+Panasonic */
 	{ 3, { 0x33, 0x66, }, { "semco" } },      /* 4339:  , 4354:Panasonic+SEMCO */
@@ -556,28 +948,6 @@ vid_info_t vid_info[] = {			  /* 4339:2G FEM+5G FEM ,4354: 2G FEM+5G FEM */
 	{ 3, { 0x90, 0x03, }, { "wisolfem2" } },  /* 4354:Murata+Panasonic */
 	{ 3, { 0x00, 0x11, }, { "muratafem1" } }, /* 4339:  , 4354:Murata+Anadigics */
 	{ 3, { 0x00, 0x22, }, { "muratafem2"} },  /* 4339:  , 4354:Murata+Triquint */
-	{ 0, { 0x00, }, { "samsung" } }           /* Default: Not specified yet */
-};
-#elif defined(BCM4358_CHIP)
-vid_info_t vid_info[] = {
-	{ 3, { 0x33, 0x33, }, { "semco_b85" } },
-	{ 3, { 0x33, 0x66, }, { "semco_b85" } },
-	{ 3, { 0x33, 0x88, }, { "semco3rd_b85" } },
-	{ 3, { 0x90, 0x01, }, { "wisol_b85" } },
-	{ 3, { 0x90, 0x02, }, { "wisolfem1_b85" } },
-	{ 3, { 0x90, 0x03, }, { "wisolfem2_b85" } },
-	{ 3, { 0x31, 0x90, }, { "wisol_b85b" } },
-	{ 3, { 0x00, 0x11, }, { "murata_b85" } },
-	{ 3, { 0x00, 0x22, }, { "murata_b85"} },
-	{ 6, { 0x00, 0xFF, 0xFF, 0x00, 0x00, }, { "murata_b85"} },
-	{ 3, { 0x10, 0x33, }, { "semco_b85a" } },
-	{ 3, { 0x30, 0x33, }, { "semco_b85b" } },
-	{ 3, { 0x31, 0x33, }, { "semco_b85b" } },
-	{ 3, { 0x10, 0x22, }, { "murata_b85a" } },
-	{ 3, { 0x20, 0x22, }, { "murata_b85a" } },
-	{ 3, { 0x21, 0x22, }, { "murata_b85a" } },
-	{ 3, { 0x23, 0x22, }, { "murata_b85a" } },
-	{ 3, { 0x31, 0x22, }, { "murata_b85b" } },
 	{ 0, { 0x00, }, { "samsung" } }           /* Default: Not specified yet */
 };
 #else
@@ -596,7 +966,6 @@ int dhd_check_module_cid(dhd_pub_t *dhd)
 	vid_info_t *cur_info;
 	unsigned char *vid_start;
 	unsigned char vid_length;
-	bool found = false;
 #if defined(BCM4334_CHIP) || defined(BCM4335_CHIP)
 	const char *revfilepath = REVINFO;
 #ifdef BCM4334_CHIP
@@ -615,7 +984,7 @@ int dhd_check_module_cid(dhd_pub_t *dhd)
 	ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, cis_buf,
 		sizeof(cis_buf), 0, 0);
 	if (ret < 0) {
-		DHD_INFO(("[WIFI_SEC] %s: CIS reading failed, ret=%d\n",
+		DHD_ERROR(("[WIFI_SEC] %s: CIS reading failed, ret=%d\n",
 			__FUNCTION__, ret));
 		return ret;
 	}
@@ -625,34 +994,26 @@ int dhd_check_module_cid(dhd_pub_t *dhd)
 #ifdef DUMP_CIS
 	dhd_dump_cis(cis_buf, 48);
 #endif
-	/* 4 byte : [TAG_START] [VID_LENGTH] [TAG_VENDOR] [VID_START] */
+
 	max = sizeof(cis_buf) - 4;
 	for (idx = 0; idx < max; idx++) {
-		if (cis_buf[idx] == CIS_TUPLE_TAG_START && cis_buf[idx + 2]
-			 == CIS_TUPLE_TAG_VENDOR) {
-			vid_length = cis_buf[idx + 1];
-			vid_start = &cis_buf[idx + 3];
-			/* Check buffer overflow */
-			if (&cis_buf[idx + 1] + vid_length <= &cis_buf[CIS_BUF_SIZE - 1]) {
+		if (cis_buf[idx] == CIS_TUPLE_TAG_START) {
+			if (cis_buf[idx + 2] == CIS_TUPLE_TAG_VENDOR) {
+				vid_length = cis_buf[idx + 1];
+				vid_start = &cis_buf[idx + 3];
 				/* found CIS tuple */
-				found = true;
 				break;
+			} else {
+				/* Go to next tuple if tuple value is not vendor type */
+				idx += (cis_buf[idx + 1] + 1);
 			}
 		}
 	}
 
-	if (found) {
+	if (idx < max) {
 		max = sizeof(vid_info) / sizeof(vid_info_t);
 		for (idx = 0; idx < max; idx++) {
 			cur_info = &vid_info[idx];
-#if defined(BCM4358_CHIP)
-			if (cur_info->vid_length  == 6 && vid_length == 6) {
-				if (cur_info->vid[0] == vid_start[0] &&
-				    cur_info->vid[3] == vid_start[3] &&
-				    cur_info->vid[4] == vid_start[4])
-				goto write_cid;
-			}
-#endif /* BCM4358_CHIP */
 			if ((cur_info->vid_length == vid_length) &&
 				(cur_info->vid_length != 0) &&
 				(memcmp(cur_info->vid, vid_start, cur_info->vid_length - 1) == 0))
@@ -702,7 +1063,8 @@ write_cid:
 #endif /* BCM4334_CHIP */
 #if defined(BCM4335_CHIP)
 	DHD_TRACE(("[WIFI_SEC] %s: BCM4335 Multiple Revision Check\n", __FUNCTION__));
-	if (concate_revision(dhd->bus, rev_str, rev_str) < 0) {
+	if (concate_revision(dhd->bus, rev_str, sizeof(rev_str),
+		rev_str, sizeof(rev_str)) < 0) {
 		DHD_ERROR(("[WIFI_SEC] %s: fail to concate revision\n", __FUNCTION__));
 		ret = -1;
 	} else {
@@ -770,37 +1132,61 @@ int dhd_check_module_mac(dhd_pub_t *dhd, struct ether_addr *mac)
 	ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, cis_buf,
 		sizeof(cis_buf), 0, 0);
 	if (ret < 0) {
-		DHD_INFO(("[WIFI_SEC] %s: CIS reading failed, ret=%d\n",
-			__FUNCTION__, ret));
-
+		DHD_TRACE(("[WIFI_SEC] %s: CIS reading failed, ret=%d\n", __func__,
+			ret));
 		sprintf(otp_mac_buf, "%02X:%02X:%02X:%02X:%02X:%02X\n",
 			mac->octet[0], mac->octet[1], mac->octet[2],
 			mac->octet[3], mac->octet[4], mac->octet[5]);
 		DHD_ERROR(("[WIFI_SEC] %s: Check module mac by legacy FW : " MACDBG "\n",
 			__FUNCTION__, MAC2STRDBG(mac->octet)));
 	} else {
-		int max, idx, macaddr_idx;
+		bcm_tlv_t *elt = NULL;
+		int remained_len = sizeof(cis_buf);
+		int index = 0;
+		uint8 *mac_addr = NULL;
 #ifdef DUMP_CIS
 		dhd_dump_cis(cis_buf, 48);
 #endif
 
 		/* Find a new tuple tag */
-		max = sizeof(cis_buf) - 8;
-		for (idx = 0; idx < max; idx++) {
-			if (cis_buf[idx] == CIS_TUPLE_TAG_START) {
-				if (cis_buf[idx + 2] == CIS_TUPLE_TAG_MACADDR &&
-					cis_buf[idx + 1] == 7) {
-					macaddr_idx = idx + 3;
-					/* found MAC Address tuple */
-					break;
+		while (index < remained_len) {
+			if (cis_buf[index] == CIS_TUPLE_TAG_START) {
+				remained_len -= index;
+				if (remained_len >= sizeof(bcm_tlv_t)) {
+					elt = (bcm_tlv_t *)&cis_buf[index];
 				}
+				break;
+			} else {
+				index++;
 			}
+
 		}
-		if (idx < max) {
+
+		/* Find a MAC address tuple */
+		while (elt && remained_len >= TLV_HDR_LEN) {
+			int body_len = (int)elt->len;
+
+			if ((elt->id == CIS_TUPLE_TAG_START) &&
+				(remained_len >= (body_len + TLV_HDR_LEN)) &&
+				(*elt->data == CIS_TUPLE_TAG_MACADDR)) {
+				/* found MAC Address tuple and
+				 * get the MAC Address data
+				 */
+				mac_addr = (uint8 *)elt + CIS_TUPLE_TAG_MACADDR_OFF;
+				break;
+			}
+
+			/* Go to next tuple if tuple value
+			 * is not MAC address type
+			 */
+			elt = (bcm_tlv_t *)((uint8 *)elt + (body_len + TLV_HDR_LEN));
+			remained_len -= (body_len + TLV_HDR_LEN);
+		}
+
+		if (mac_addr) {
 			sprintf(otp_mac_buf, "%02X:%02X:%02X:%02X:%02X:%02X\n",
-				cis_buf[macaddr_idx], cis_buf[macaddr_idx + 1],
-				cis_buf[macaddr_idx + 2], cis_buf[macaddr_idx + 3],
-				cis_buf[macaddr_idx + 4], cis_buf[macaddr_idx + 5]);
+				mac_addr[0], mac_addr[1], mac_addr[2],
+				mac_addr[3], mac_addr[4], mac_addr[5]);
 			DHD_ERROR(("[WIFI_SEC] MAC address is taken from OTP\n"));
 		} else {
 			sprintf(otp_mac_buf, "%02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -945,7 +1331,7 @@ void sec_control_pm(dhd_pub_t *dhd, uint *power_mode)
 		/* Enable PowerSave Mode */
 		dhd_wl_ioctl_cmd(dhd, WLC_SET_PM, (char *)power_mode,
 			sizeof(uint), TRUE, 0);
-		DHD_ERROR(("[WIFI_SEC] %s: /data/.psm.info doesn't exist"
+		DHD_ERROR(("[WIFI_SEC] %s: /data/.psm.info open failed,"
 			" so set PM to %d\n",
 			__FUNCTION__, *power_mode));
 		return;
@@ -1008,10 +1394,8 @@ int dhd_sel_ant_from_file(dhd_pub_t *dhd)
 	/* Check if this chip can support MIMO */
 	if (chip_id != BCM4324_CHIP_ID &&
 		chip_id != BCM4350_CHIP_ID &&
-		chip_id != BCM4354_CHIP_ID &&
 		chip_id != BCM4356_CHIP_ID &&
-		chip_id != BCM43569_CHIP_ID &&
-		chip_id != BCM4358_CHIP_ID) {
+		chip_id != BCM4354_CHIP_ID) {
 		DHD_ERROR(("[WIFI_SEC] %s: This chipset does not support MIMO\n",
 			__FUNCTION__));
 		return ret;
@@ -1020,7 +1404,7 @@ int dhd_sel_ant_from_file(dhd_pub_t *dhd)
 	/* Read antenna settings from the file */
 	fp = filp_open(filepath, O_RDONLY, 0);
 	if (IS_ERR(fp)) {
-		DHD_ERROR(("[WIFI_SEC] %s: File [%s] doesn't exist\n", __FUNCTION__, filepath));
+		DHD_ERROR(("[WIFI_SEC] %s: File [%s] open error\n", __FUNCTION__, filepath));
 		return ret;
 	} else {
 		ret = kernel_read(fp, 0, (char *)&ant_val, 4);
@@ -1288,204 +1672,15 @@ uint32 sec_save_wlinfo(char *firm_ver, char *dhd_ver, char *nvram_p)
 }
 #endif /* WRITE_WLANINFO */
 
-void dhd_get_memdump_info(dhd_pub_t *dhd)
+#ifdef SUPPORT_MULTIPLE_BOARD_REV_FROM_HW
+unsigned int system_hw_rev;
+static int __init get_hw_rev(char *arg)
 {
-	struct file *fp = NULL;
-	uint32 mem_val = 0;
-	int ret = 0;
-	char *filepath = MEMDUMPINFO;
-
-	/* Read memdump info from the file */
-	fp = filp_open(filepath, O_RDONLY, 0);
-	if (IS_ERR(fp)) {
-		DHD_ERROR(("[WIFI_SEC] %s: File [%s] doesn't exist\n", __FUNCTION__, filepath));
-		goto done;
-	} else {
-		ret = kernel_read(fp, 0, (char *)&mem_val, 4);
-		if (ret < 0) {
-			DHD_ERROR(("[WIFI_SEC] %s: File read error, ret=%d\n", __FUNCTION__, ret));
-			filp_close(fp, NULL);
-			goto done;
-		}
-
-		mem_val = bcm_atoi((char *)&mem_val);
-
-		DHD_ERROR(("[WIFI_SEC]%s: MEMDUMP ENABLED = %d\n", __FUNCTION__, mem_val));
-		filp_close(fp, NULL);
-	}
-
-done:
-	dhd->memdump_enabled = (mem_val < DUMP_MEMFILE_MAX) ? mem_val : DUMP_DISABLED;
+	get_option(&arg, &system_hw_rev);
+	printk("dhd : hw_rev : %d\n", system_hw_rev);
+	return 0;
 }
 
-#if defined(SUPPORT_MULTIPLE_MODULE_CIS) && defined(USE_CID_CHECK)
-int dhd_check_module_b85a(dhd_pub_t *dhd)
-{
-	int ret = -1;
-	struct file *fp = NULL;
-	char vname[MAX_VNAME_LEN] = {0, };
-	char *vname_b85a = "_b85a";
-	const char *cidfilepath = CIDINFO;
-	const char *s = NULL;
-
-	fp = filp_open(cidfilepath, O_RDONLY, 0);
-	if (IS_ERR(fp) || (fp == NULL)) {
-		DHD_ERROR(("[WIFI_SEC] %s: %s File open failed.\n", __FUNCTION__, cidfilepath));
-		ret = -1;
-	} else {
-		ret = kernel_read(fp, fp->f_pos, vname, sizeof(vname));
-		if (ret < 0) {
-			DHD_ERROR(("[WIFI_SEC] %s: File read error, ret=%d \n", __FUNCTION__, ret));
-			filp_close(fp, NULL);
-			return ret;
-		}
-
-		DHD_ERROR(("[WIFI_SEC] %s: This module is %s \n", __FUNCTION__, vname));
-		filp_close(fp, NULL);
-
-		s = strstr(vname, vname_b85a);
-		if (s != NULL) {
-			DHD_INFO(("[WIFI_SEC] %s: It's a b85a module \n", __FUNCTION__));
-			ret = 1;
-		} else {
-			DHD_INFO(("[WIFI_SEC] %s: It is not a b85a module \n", __FUNCTION__));
-			ret = -1;
-		}
-	}
-
-	return ret;
-}
-#endif /* defined(SUPPORT_MULTIPLE_MODULE_CIS) && defined(USE_CID_CHECK) */
-
-#ifdef OTP_WRITE_ON
-#define htod32(i) (i)
-
-int dhd_write_otp(dhd_pub_t *dhd)
-{
-	int ret;
-	char buf[CIS_BUF_SIZE] = {0};
-	char *bufp;
-	const char *otp_vars;
-	int otp_header_size;
-	int otp_vars_size;
-	uint32 len = 0;
-	uint chipid;
-	cis_rw_t cish;
-	char *cisp, *cisdata;
-	int max = 0;
-	bool sta_mode = FALSE;
-	cis_rw_t *cish_r = (cis_rw_t *)&buf[8];
-	struct file *fp;
-	mm_segment_t old_fs;
-	loff_t pos = 0;
-
-	chipid = dhd_bus_chip_id(dhd);
-
-	if (chipid == BCM43569_CHIP_ID) {
-		otp_vars = BCM4358A3_otp_vars;
-		otp_vars_size = sizeof(BCM4358A3_otp_vars);
-		otp_header_size = BCM4358A3_OTP_HEADER_SIZE;
-	} else {
-		DHD_ERROR(("%s: can't find OTP header for chip\n", __FUNCTION__));
-		return BCME_ERROR;
-	}
-
-	cish_r->source = 0;
-	cish_r->byteoff = 0;
-	cish_r->nbytes = sizeof(buf);
-
-	strcpy(buf, "cisdump");
-	ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf), 0, 0);
-	if (ret < 0) {
-		DHD_ERROR(("[WIFI_SEC] %s: CIS reading failed, ret=%d\n",
-			__FUNCTION__, ret));
-		sta_mode = TRUE;
-		goto exit;
-	}
-
-	max = otp_header_size;
-	if (memcmp(&buf[12], otp_vars, otp_header_size) == 0) {
-		DHD_ERROR(("%s:OTP already was written\n", __FUNCTION__));
-	} else {
-		DHD_ERROR(("%s: OTP length: %d bytes \n", __FUNCTION__, otp_vars_size));
-
-		max = sizeof(buf);
-		bufp = buf;
-		memset(buf, 0, sizeof(buf));
-		strcpy(bufp, "ciswrite");
-		bufp += strlen("ciswrite") + 1;
-		cisp = bufp;
-		cisdata = cisp + sizeof(cish);
-
-		cish.source = htod32(0);
-
-		memcpy(cisdata, (char *)otp_vars, otp_vars_size);
-		len = otp_vars_size;
-
-		cish.byteoff = htod32(0);
-		cish.nbytes = htod32(len);
-		memcpy(cisp, (char*)&cish, sizeof(cish));
-
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, buf,
-			(cisp - buf) + sizeof(cish) + len, TRUE, 0);
-		if (ret) {
-			DHD_ERROR(("%s: Fail to write otp, ret = %d \n", __FUNCTION__, ret));
-		} else {
-			DHD_ERROR(("Success to write otp \n"));
-		}
-	}
-	/* check or create .otp.info */
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-
-	fp = filp_open("/data/.otp.info", O_RDONLY, 0);
-	if (IS_ERR(fp)) {
-
-		/* prepare .otp.info data through reading OTP from chip  */
-		memset(buf, 0, sizeof(buf));
-		strcpy(buf, "cisdump");
-		ret = dhd_wl_ioctl_cmd(dhd, WLC_GET_VAR, buf, sizeof(buf), 0, 0);
-		if (ret < 0) {
-			DHD_ERROR(("[WIFI_SEC] %s: CIS reading failed After writing ret=%d\n",
-				__FUNCTION__, ret));
-			goto exit;
-		}
-
-		/* create .otp.info */
-		fp = filp_open("/data/.otp.info", O_RDWR|O_CREAT, 0666);
-	        if (IS_ERR(fp)) {
-			DHD_ERROR(("%s:(MFG mode) file create error\n", __FUNCTION__));
-			return BCME_ERROR;
-		}
-
-		/* Write buf to file */
-		fp->f_op->write(fp, buf, CIS_BUF_SIZE, &pos);
-	}
-
-	filp_close(fp, current->files);
-
-	DHD_ERROR(("%s: .otp.info is created or existing already\n", __FUNCTION__));
-	/* restore previous address limit */
-	set_fs(old_fs);
-
-exit:
-	if (sta_mode == TRUE) {
-		fp = filp_open("/data/.otp.info", O_RDONLY, 0);
-		if (IS_ERR(fp)) {
-			DHD_ERROR(("%s: file open error.\n", __FUNCTION__));
-			return BCME_ERROR;
-		}
-
-		ret = kernel_read(fp, 0, buf, CIS_BUF_SIZE);
-
-		if (memcmp(&buf[12], otp_vars, otp_header_size) == 0) {
-			DHD_ERROR(("%s: OTP checking -> OK\n", __FUNCTION__));
-		} else {
-			DHD_ERROR(("%s: OTP checking -> OTP has ERROR.\n", __FUNCTION__));
-		}
-		filp_close(fp, current->files);
-	}
-	return ret;
-}
-#endif /* OTP_WRITE_ON */
+early_param("androidboot.hw_rev", get_hw_rev);
+#endif /* SUPPORT_MULTIPLE_BOARD_REV_FROM_HW */
 #endif /* CUSTOMER_HW4 */

@@ -53,7 +53,7 @@ static void __print_ensemble_info(struct ensemble_info_type *e_info)
 {
 	int i = 0;
 
-	DPRINTK("ensem_freq(%ld)\n", e_info->ensem_freq);
+	DPRINTK("ensem_freq(%d)\n", e_info->ensem_freq);
 	DPRINTK("ensem_label(%s)\n", e_info->ensem_label);
 	for (i = 0; i < e_info->tot_sub_ch; i++) {
 		DPRINTK("sub_ch_id(0x%x)\n", e_info->sub_ch[i].sub_ch_id);
@@ -116,10 +116,18 @@ static bool __get_ensemble_info(struct ensemble_info_type *e_info
 					= fci_sub_info->ucServiceType;
 				e_info->sub_ch[sub_i].svc_id
 					= fci_sub_info->ulServiceID;
+
+				e_info->sub_ch[sub_i].ca_flags
+					= fci_sub_info->ucCAFlag;
+
 				e_info->sub_ch[sub_i].scids
 					= fci_sub_info->scids;
 				e_info->sub_ch[sub_i].ecc
 					= fci_sub_info->ecc;
+
+				if (fci_sub_info->ucCAFlag)
+					DPRINTK("%s: sub_channel_id(%d) ca_flag detected\n",
+					__func__, sub_i);	
 				if (i == 0)
 					memcpy(
 						e_info->sub_ch[sub_i].svc_label,
@@ -161,7 +169,7 @@ static void fc8080_power_off(void)
 	}
 }
 
-static bool fc8080_power_on(void)
+static bool fc8080_power_on(int param)
 {
 	DPRINTK("%s\n", __func__);
 
@@ -169,7 +177,11 @@ static bool fc8080_power_on(void)
 		return true;
 	} else {
 		tdmb_control_gpio(true);
-		if (dmb_drv_init(tdmb_get_if_handle()) == TDMB_FAIL) {
+		if (dmb_drv_init(tdmb_get_if_handle()
+#ifdef CONFIG_TDMB_XTAL_FREQ
+		,param
+#endif
+		) == TDMB_FAIL) {
 			tdmb_control_gpio(false);
 			return false;
 		} else {
@@ -194,7 +206,7 @@ static void fc8080_get_dm(struct tdmb_dm *info)
 		info->per = 0;
 		info->antenna = 0;
 	}
-	}
+}
 
 static bool fc8080_set_ch(unsigned long freq,
 							unsigned char sub_ch_id,

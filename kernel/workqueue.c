@@ -49,10 +49,10 @@
 #include <linux/uaccess.h>
 #include <linux/bug.h>
 
+#include <linux/sec_debug.h>
+
 #include "workqueue_internal.h"
-#ifdef CONFIG_SEC_DEBUG
-#include <mach/sec_debug.h>
-#endif
+#include <mach/exynos-ss.h>
 
 enum {
 	/*
@@ -2203,15 +2203,11 @@ __acquires(&pool->lock)
 	lock_map_acquire_read(&pwq->wq->lockdep_map);
 	lock_map_acquire(&lockdep_map);
 	trace_workqueue_execute_start(work);
-#ifdef CONFIG_SEC_DEBUG
-	if ((unsigned int)worker->current_func > PAGE_OFFSET) {
-		secdbg_sched_msg("@%pS", worker->current_func);
-	} else {
-		secdbg_sched_msg("M:0x%x", (unsigned int)worker->current_func);
-	}
-#endif
+	exynos_ss_work(worker, work, worker->current_func, ESS_FLAG_IN);
+	sec_debug_work_log(worker, work, worker->current_func, 1);
 	worker->current_func(work);
-
+	exynos_ss_work(worker, work, worker->current_func, ESS_FLAG_OUT);
+	sec_debug_work_log(worker, work, worker->current_func, 2);
 	/*
 	 * While we must be careful to not use "work" after this, the trace
 	 * point will only record its address.

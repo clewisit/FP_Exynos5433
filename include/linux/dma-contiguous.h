@@ -57,7 +57,17 @@ struct cma;
 struct page;
 struct device;
 
+struct cma_info {
+	phys_addr_t	base;
+	size_t		size;
+	size_t		free;
+	bool		isolated;
+};
+
 #ifdef CONFIG_CMA
+
+/* Not to allow CMA migration */
+#define CMA_NO_MIGRATION
 
 /*
  * There is always at least global CMA area and a few optional device
@@ -121,6 +131,20 @@ unsigned long dma_alloc_from_contiguous(struct device *dev, size_t count,
 bool dma_release_from_contiguous(struct device *dev, unsigned long pfn,
 				 int count);
 
+int dma_contiguous_info(struct device *dev, struct cma_info *info);
+
+#ifndef CMA_NO_MIGRATION
+int dma_contiguous_isolate(struct device *dev);
+
+void dma_contiguous_deisolate(struct device *dev);
+#else
+static inline int dma_contiguous_isolate(struct device *dev)
+{
+	return -ENOSYS;
+}
+#define dma_contiguous_deisolate(dev) do { } while (0)
+#endif /* CMA_NO_MIGRATION */
+
 #else
 
 #define MAX_CMA_AREAS	(0)
@@ -148,11 +172,19 @@ bool dma_release_from_contiguous(struct device *dev, unsigned long pfn,
 	return false;
 }
 
-
-static inline phys_addr_t cma_get_base(struct device *dev)
+static inline
+int dma_contiguous_info(struct device *dev, struct cma_info *info)
 {
-	return 0;
+	return -ENOSYS;
 }
+
+static inline
+int dma_contiguous_isolate(struct device *dev)
+{
+	return -ENOSYS;
+}
+
+#define dma_contiguous_deisolate(dev) do { } while (0)
 
 #endif
 

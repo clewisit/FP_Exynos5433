@@ -21,8 +21,12 @@
 #include <linux/delay.h>
 #include <linux/random.h>
 #include <linux/err.h>
-#include <linux/input.h>
+#include <asm/setup.h>
+
 #include <linux/of.h>
+
+#include <linux/input.h>
+
 
 #include "../w1.h"
 #include "../w1_int.h"
@@ -31,92 +35,100 @@
 
 // 1-Wire commands
 // delay durations
-#define DELAY_EEPROM_WRITE		20
-#define DELAY_KEY_GEN           	320
-#define DELAY_SIGNATURE_COMPUTE 	320
-#define DELAY_SHA256            	0	// delay already included in DELAY_SIGNATURE_COMPUTE
-
-bool attached;;
+#define DELAY_EEPROM_WRITE      20
+#define DELAY_KEY_GEN           320   //???
+#define DELAY_SIGNATURE_COMPUTE 320   //???
+#define DELAY_SHA256            5     //????
 
 // 1-Wire Memory commands
-#define CMD_WRITE_READ_BUFFER   0x0F
-#define CMD_LOAD_DATA           0x33
-#define CMD_GENERATE_KEY_PAIR   0x3C
-#define CMD_COMPUTE_READ_PAGE   0xA5
-#define CMD_READ_MEMORY         0xF0
-#define CMD_WRITE_MEMORY        0x55
-#define CMD_READ_ADMIN          0xAA
-#define CMD_SET_PROTECTION      0xC3
-#define CMD_DECREMENT_COUNTER   0x69
+#define CMD_WRITE_READ_BUFFER 0x0F
+#define CMD_LOAD_DATA         0x33
+#define CMD_GENERATE_KEY_PAIR 0x3C
+#define CMD_COMPUTE_READ_PAGE 0xA5
+#define CMD_READ_MEMORY       0xF0
+#define CMD_WRITE_MEMORY      0x55
+#define CMD_READ_ADMIN        0xAA
+#define CMD_SET_PROTECTION    0xC3
+#define CMD_DECREMENT_COUNTER 0x69
 
 // Selection methods
-#define SELECT_SKIP     	0
-#define SELECT_RESUME   	1
-#define SELECT_MATCH    	2
-#define SELECT_ODMATCH  	3
-#define SELECT_SEARCH   	4
-#define SELECT_READROM  	5
-#define SELECT_ODSKIP   	6
+#define SELECT_SKIP    0
+#define SELECT_RESUME  1
+#define SELECT_MATCH   2
+#define SELECT_ODMATCH 3
+#define SELECT_SEARCH  4
+#define SELECT_READROM 5
+#define SELECT_ODSKIP  6
 
 // Family code
-#define DS28EL35_FAMILY		0x40
+#define DS28EL35_FAMILY 0x40
 
 // Lock flags for generating KeyPair
-#define FLAG_LOCK        	0x07
-#define FLAG_NO_LOCK     	0x00
+#define FLAG_LOCK    0x07
+#define FLAG_NO_LOCK 0x00
 
 // Public key extra bit flag
 #define FLAG_PUBLIC_KEY_XTRA_BIT    0x80
 #define FLAG_PUBLIC_KEY_NO_XTRA_BIT 0x00
 
 // Release byte
-#define RELEASE_BYTE     	0xAA
+#define RELEASE_BYTE 0xAA
 
 // Memory destinations
-#define MEM_PRIVATE_KEY   	0x00
-#define MEM_PUBLIC_KEY    	0x20
-#define MEM_CERT_PART1    	0x40
-#define MEM_CERT_PART2    	0x60
-#define MEM_CHALLENGE     	0x80
-#define MEM_COUNTER       	0xA0
+#define MEM_PRIVATE_KEY 0x00
+#define MEM_PUBLIC_KEY  0x20
+#define MEM_CERT_PART1  0x40
+#define MEM_CERT_PART2  0x60
+#define MEM_CHALLENGE   0x80
+#define MEM_COUNTER     0xA0
 
 // flags
-#define FLAG_WRITE        	0x00
-#define FLAG_READ         	0x0F
+#define FLAG_WRITE 0x00
+#define FLAG_READ  0x0F
 
 // Administation destinations
-#define ADMIN_PAGE_PROTECTION	0x00
-#define ADMIN_PUBLIC_KEY       	0x20
-#define ADMIN_CERT_PART1       	0x40
-#define ADMIN_CERT_PART2       	0x60
-#define ADMIN_COUNTER          	0xA0
-#define ADMIN_PERSONALITY      	0xE0
+#define ADMIN_PAGE_PROTECTION 0x00
+#define ADMIN_PUBLIC_KEY      0x20
+#define ADMIN_CERT_PART1      0x40
+#define ADMIN_CERT_PART2      0x60
+#define ADMIN_COUNTER         0xA0
+#define ADMIN_PERSONALITY     0xE0
 
 // Protection flags
-#define PROTECT_READ   		0x80
-#define PROTECT_WRITE  		0x40
-#define PROTECT_EPROM  		0x20
+#define PROTECT_READ  0x80
+#define PROTECT_WRITE 0x40
+#define PROTECT_EPROM 0x20
 
 // Object destination
-#define OBJECT_PAGE0   		0x00
-#define OBJECT_PAGE1   		0x01
-#define OBJECT_PAGE2   		0x02
-#define OBJECT_PAGE3   		0x03
-#define OBJECT_KEY     		0x0C
-#define OBJECT_CERT    		0x0D
+#define OBJECT_PAGE0 0x00
+#define OBJECT_PAGE1 0x01
+#define OBJECT_PAGE2 0x02
+#define OBJECT_PAGE3 0x03
+#define OBJECT_KEY   0x0C
+#define OBJECT_CERT  0x0D
 
 // Samsung define
-#define ID_MIN		0
-#define ID_MAX		100
-#define CO_MIN		0
-#define CO_MAX		16
-#define ID_DEFAULT	1
-#define CO_DEFAULT	1
-#define RETRY_LIMIT	5
+#define ID_MIN      0
+#define ID_MAX      7
+#define ID_MIN2     100
+#define ID_MAX2     100
+#define CO_MIN      0
+#define CO_MAX      16
+#define MD_MIN      1
+#define MD_MAX      3
+#define ID_DEFAULT  1
+#define CO_DEFAULT  1
+#define MD_DEFAULT  1
+#define TB_ID_DEFAULT  1
+#define TB_MD_DEFAULT  3
+#define ID_INDEX    0
+#define CO_INDEX    1
+#define MD_INDEX    3
+#define RETRY_LIMIT 5
 // end customer define
 
 #ifndef uchar
-   typedef unsigned char uchar;
+typedef unsigned char uchar;
 #endif
 
 // Memory level functions
@@ -135,6 +147,9 @@ int decrement_counter(struct w1_slave *sl);
 BOOL read_publickey(struct w1_slave *sl);
 BOOL read_authverify(struct w1_slave *sl, int page, uchar *challenge, uchar *pg_data, uchar *r, uchar *s);
 BOOL verify_certificate(struct w1_slave *sl, char *cert_r, char *cert_s);
+#ifdef WRITE_CERTIFICATE
+BOOL write_certificate(struct w1_slave *sl, char *cert_r, char *cert_s);
+#endif
 
 static unsigned short docrc16(unsigned short data);
 static int deviceselect(struct w1_slave *sl);
@@ -144,21 +159,122 @@ static int BUGFIX = 1; // Flag to indicate fix around known bug
 // misc state
 static unsigned short slave_crc16;
 
+//fo SN fota
+static int special_mode;
+static char special_values[2];
+static char rom_no[8];
+
 // debug
 static int ecdsa_debug = 1;
-static int total_run=0, fail_run=0;
 
-int verification = -1, id = 2, color, model, detect;	// for samsung
-#ifdef CONFIG_W1_SN
-char g_sn[14];
-#endif
+int w1_verification = -1, w1_id = 2, w1_color = 0, w1_model = 1, detect;  // for samsung
+char w1_g_sn[14];
 
-static u8 init_verify = 1;	// for inital verifying
+bool w1_attached;
 
+#ifdef CONFIG_W1_CF
+int w1_cf_node = -1;
+#endif  /* CONFIG_W1_CF */
+
+#define READ_EOP_BYTE(seg) (32 - seg * 4)
+
+static u8 init_verify = 1;      // for inital verifying
+
+
+void set_special_mode(int enable, uchar *values)
+{
+	special_mode = enable;
+	special_values[0] = values[0];
+	special_values[1] = values[1];
+}
 
 //-----------------------------------------------------------------------------
 // ------ DS28EL35 ECDSA High Level Functions
 //-----------------------------------------------------------------------------
+
+#ifdef WRITE_CERTIFICATE
+//--------------------------------------------------------------------------
+/**
+ * Create the device certificate using the system private key and write it
+ * to the device. The input to the certificate is the public key of the
+ * device (global) and the ROM ID (global).
+ *
+ * @param[in] Sys_d
+ * System private key, pointer to a character string
+ * @param[out] cert_r
+ * Certificate signature r
+ * @param[out] cert_s
+ * Certificate signature s
+ *
+ * @return
+ * TRUE - Certificate generated and written @n
+ * FALSE - Failed to write certificate
+ */
+BOOL write_certificate(struct w1_slave *sl, char *cert_r, char *cert_s)
+{
+	unsigned long int m[64];
+	int i;
+	uchar buf[80], temp[80];
+
+	// use device public key (already read)
+	if (!make_message(m))
+		return FALSE;
+
+	// debug
+	if (ecdsa_debug) {
+		dprintf("Cert input\n");
+		dprintf("Converted: \n");
+		for (i = 0; i < 14; i++)
+			dprintf("m%d=0x%08X\n", i, (unsigned int)m[i]);
+	}
+
+	// generate the certificate
+	if (!generate_ecdsa_signature(0x278, m, cert_r, cert_s))
+		return FALSE;
+
+	// convert cert_r to byte array
+	if (!convert_str_to_bytes(cert_r, 24, buf))
+		return FALSE;
+
+	// Certificate stored LSByte first so reverse order
+	memcpy(temp, buf, 24);
+	for (i = 0; i < 24; i++)
+		buf[i] = temp[23 - i];
+
+	// convert bytes back to string to zero pad
+	convert_bytes_to_str(buf, 24, cert_r);
+
+	// write challenge to buffer for r
+	if (!write_buffer(sl, MEM_CERT_PART1, buf))
+		return FALSE;
+
+	// copy
+	if (!load_data(sl, MEM_CERT_PART1, 0))
+		return FALSE;
+
+	// convert cert_s to byte array
+	if (!convert_str_to_bytes(cert_s, 24, buf))
+		return FALSE;
+
+	// Certificate stored LSByte first so reverse order
+	memcpy(temp, buf, 24);
+	for (i = 0; i < 24; i++)
+		buf[i] = temp[23 - i];
+
+	// convert bytes back to string to zero pad
+	convert_bytes_to_str(buf, 24, cert_s);
+
+	// write challenge to buffer for s
+	if (!write_buffer(sl, MEM_CERT_PART2, buf))
+		return FALSE;
+
+	// copy
+	if (!load_data(sl, MEM_CERT_PART2, 0))
+		return FALSE;
+
+	return TRUE;
+}
+#endif
 
 //--------------------------------------------------------------------------
 /**
@@ -179,13 +295,11 @@ BOOL read_publickey(struct w1_slave *sl)
 	int rt = 0;
 
 	// read the public key 'x'
-	if (read_administrativedata(sl, ADMIN_PUBLIC_KEY, 0, compressed_x))
-	{
+	if (read_administrativedata(sl, ADMIN_PUBLIC_KEY, 0, compressed_x)) {
 		rt = 1;
 		dprintf("DS28EL35, get public key done\n");
 		// read the compress 'y'
-		if (read_administrativedata(sl, ADMIN_PERSONALITY, 0, compressed_y))
-		{
+		if (read_administrativedata(sl, ADMIN_PERSONALITY, 0, compressed_y)) {
 			rt = 2;
 			dprintf("DS28EL35, get personality done\n");
 			// extract MANID
@@ -193,15 +307,14 @@ BOOL read_publickey(struct w1_slave *sl)
 			manid[1] = compressed_y[3];
 
 			// construct the combined compressed xy
-			pos = sprintf(compressed_xy,"%02X",(compressed_y[1] & 0x80) ? 0x03 : 0x02);
+			pos = sprintf(compressed_xy, "%02X",
+					(compressed_y[1] & 0x80) ? 0x03 : 0x02);
 			for (i = 23; i >= 0; i--)
-			pos += sprintf(&compressed_xy[pos],"%02X",compressed_x[i]);
+				pos += sprintf(&compressed_xy[pos], "%02X", compressed_x[i]);
 			compressed_xy[pos] = 0;
 
 			if (ecdsa_debug)
-			{
-				dprintf("DS28EL35, compressed: %s\n",compressed_xy);
-			}
+				dprintf("DS28EL35, compressed: %s\n", compressed_xy);
 
 			// Decompress Public key
 			if (decompress_public_key(compressed_xy, manid)) {
@@ -236,11 +349,11 @@ BOOL read_publickey(struct w1_slave *sl)
  * FALSE - Error with authentication
  */
 BOOL read_authverify(struct w1_slave *sl, int page, uchar *challenge,
-						uchar *pg_data, uchar *r, uchar *s)
+		     uchar *pg_data, uchar *r, uchar *s)
 {
 	char sig_r[80], sig_s[80];
 	unsigned long int m[64];
-	int i,pos;
+	int i, pos;
 	int rt = 0;
 
 	// read page
@@ -250,7 +363,7 @@ BOOL read_authverify(struct w1_slave *sl, int page, uchar *challenge,
 	}
 
 	// write challenge to buffer
-	if (!write_buffer(sl, MEM_CHALLENGE,challenge)) {
+	if (!write_buffer(sl, MEM_CHALLENGE, challenge)) {
 		rt = 2;
 		goto out;
 	}
@@ -264,25 +377,24 @@ BOOL read_authverify(struct w1_slave *sl, int page, uchar *challenge,
 	// convert signature to cstr to use with ECDSA library
 	pos = 0;
 	for (i = 23; i >= 0; i--)
-		pos += sprintf(&sig_r[pos],"%02X",r[i]);
+		pos += sprintf(&sig_r[pos], "%02X", r[i]);
 	sig_r[pos] = 0;
 	pos = 0;
 	for (i = 23; i >= 0; i--)
-		pos += sprintf(&sig_s[pos],"%02X",s[i]);
+		pos += sprintf(&sig_s[pos], "%02X", s[i]);
 	sig_s[pos] = 0;
 
 	make_sha256_message(pg_data, challenge, page, m);
-	if (ecdsa_debug)
-	{
-		dprintf("sig s: %s\n",sig_s);
-		dprintf("sig r: %s\n",sig_r);
+	if (ecdsa_debug) {
+		dprintf("sig s: %s\n", sig_s);
+		dprintf("sig r: %s\n", sig_r);
 	}
 	rt = 5;
-	dprintf("DS28EL35, read_authverify, rt=%d\n",rt);
+	dprintf("DS28EL35, read_authverify, rt=%d\n", rt);
 	// verify signature and return result
 	return verify_ecdsa_signature((int)0x278, m, sig_r, sig_s, 1);
 out:
-	dprintf("DS28EL35, read_authverify, rt=%d\n",rt);
+	dprintf("DS28EL35, read_authverify, rt=%d\n", rt);
 	return FALSE;
 }
 
@@ -341,7 +453,7 @@ BOOL verify_certificate(struct w1_slave *sl, char *cert_r, char *cert_s)
 	convert_bytes_to_str(cert_s_bytes_ms, 24, cert_s_ms);
 
 	// verify certificate and return result
-	return verify_ecdsa_signature (0x278, m, cert_r_ms, cert_s_ms, 0);
+	return verify_ecdsa_signature(0x278, m, cert_r_ms, cert_s_ms, 0);
 }
 
 //-----------------------------------------------------------------------------
@@ -362,12 +474,11 @@ BOOL verify_certificate(struct w1_slave *sl, char *cert_r, char *cert_s)
  */
 int write_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
 {
-	int len,i;
+	int len, i;
 	uchar buf[256];
 
 	// get length from destination
-	switch (mem_destination)
-	{
+	switch (mem_destination) {
 	case MEM_CHALLENGE:
 		len = 32;
 		break;
@@ -383,11 +494,12 @@ int write_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
 	default:
 		len = 0;
 		break;
-	};
+	}
+	;
 
 	// Select device
 	if (!deviceselect(sl))
-		  return FALSE;
+		return FALSE;
 
 	// send command and parameter
 	buf[0] = CMD_WRITE_READ_BUFFER;
@@ -399,13 +511,11 @@ int write_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
 		docrc16(buf[i]);
 
 	// Send command and parameter
-	if (BUGFIX)
-	{
+	if (BUGFIX) {
 		w1_write_8(sl->master, buf[0]);
 		msleep(1);
 		w1_write_8(sl->master, buf[1]);
-	}
-	else
+	} else
 		w1_write_block(sl->master, &buf[0], 2);
 
 	// Read the slave_crc16
@@ -415,12 +525,12 @@ int write_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
 
 	// check First slave_crc16
 	if (slave_crc16 != 0xB001)
-	  	return FALSE;
+		return FALSE;
 
 	// pre-compute second slave_crc16
 	slave_crc16 = 0;
 	for (i = 0; i < len; i++)
-	  	docrc16(data[i]);
+		docrc16(data[i]);
 
 	// send the data to write
 	w1_write_block(sl->master, &data[0], len);
@@ -428,11 +538,11 @@ int write_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
 	// Read the slave_crc16
 	w1_read_block(sl->master, &buf[0], 2);
 	for (i = 0; i < 2; i++)
-	  	docrc16(buf[i]);
+		docrc16(buf[i]);
 
 	// check Second slave_crc16
 	if (slave_crc16 != 0xB001)
-	  	return FALSE;
+		return FALSE;
 
 	return TRUE;
 }
@@ -451,12 +561,11 @@ int write_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
  */
 int read_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
 {
-	int len,i;
+	int len, i;
 	uchar buf[256];
 
 	// get length from destination
-	switch (mem_destination)
-	{
+	switch (mem_destination) {
 	case MEM_CHALLENGE:
 		len = 32;
 		break;
@@ -472,7 +581,8 @@ int read_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
 	default:
 		len = 0;
 		break;
-	};
+	}
+	;
 
 	// Select device
 	if (!deviceselect(sl))
@@ -488,13 +598,11 @@ int read_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
 		docrc16(buf[i]);
 
 	// Send command and parameter
-	if (BUGFIX)
-	{
+	if (BUGFIX) {
 		w1_write_8(sl->master, buf[0]);
 		msleep(1);
 		w1_write_8(sl->master, buf[1]);
-	}
-	else
+	} else
 		w1_write_block(sl->master, &buf[0], 2);
 
 	// Read the slave_crc16
@@ -536,12 +644,11 @@ int read_buffer(struct w1_slave *sl, int mem_destination, uchar *data)
  */
 int load_data(struct w1_slave *sl, int mem_destination, int public_key_extra_bit)
 {
-	int i,cs,delay;
+	int i, cs, delay;
 	uchar buf[256];
 
 	// get length from destination
-	switch (mem_destination)
-	{
+	switch (mem_destination) {
 	case MEM_COUNTER:
 		delay = DELAY_EEPROM_WRITE * 2;
 		break;
@@ -556,7 +663,8 @@ int load_data(struct w1_slave *sl, int mem_destination, int public_key_extra_bit
 	default:
 		delay = 0;
 		break;
-	};
+	}
+	;
 
 	// Select device
 	if (!deviceselect(sl))
@@ -610,7 +718,7 @@ int load_data(struct w1_slave *sl, int mem_destination, int public_key_extra_bit
  */
 int generate_keypair(struct w1_slave *sl, int lock)
 {
-	int i,cs;
+	int i, cs;
 	uchar buf[256];
 
 	// Select device
@@ -619,7 +727,7 @@ int generate_keypair(struct w1_slave *sl, int lock)
 
 	// send command and parameter
 	buf[0] = CMD_GENERATE_KEY_PAIR;
-	buf[1] = (lock)? FLAG_LOCK : FLAG_NO_LOCK;
+	buf[1] = (lock) ? FLAG_LOCK : FLAG_NO_LOCK;
 
 	// pre-calculate the slave_crc16
 	slave_crc16 = 0;
@@ -668,7 +776,7 @@ int generate_keypair(struct w1_slave *sl, int lock)
  */
 int compute_readpage_signature(struct w1_slave *sl, int page, uchar *r, uchar *s)
 {
-	int i,cs;
+	int i, cs;
 	uchar buf[256];
 	int rt = 0;
 
@@ -776,15 +884,14 @@ out:
  */
 int read_memorypage(struct w1_slave *sl, int segment, int page, uchar *data, int cont)
 {
-	int len,i;
+	int len, i;
 	uchar buf[256];
 
 	// calculate the length
 	len = (8 - segment) * 4;
 
 	// check if not continuing from last read
-	if (!cont)
-	{
+	if (!cont) {
 		// Select device
 		if (!deviceselect(sl))
 			return FALSE;
@@ -848,12 +955,11 @@ int read_memorypage(struct w1_slave *sl, int segment, int page, uchar *data, int
  */
 int write_memorysegment(struct w1_slave *sl, int segment, int page, uchar *data, int cont)
 {
-	int i,cs;
+	int i, cs;
 	uchar buf[256];
 
 	// check if not continuing from last read
-	if (!cont)
-	{
+	if (!cont) {
 		// Select device
 		if (!deviceselect(sl))
 			return FALSE;
@@ -929,12 +1035,11 @@ int write_memorysegment(struct w1_slave *sl, int segment, int page, uchar *data,
  */
 int read_administrativedata(struct w1_slave *sl, int admin_destination, int prot_page, uchar *data)
 {
-	int len,i;
+	int len, i;
 	uchar buf[256];
 	int rt = 0;
 
-	switch (admin_destination)
-	{
+	switch (admin_destination) {
 	case ADMIN_PAGE_PROTECTION:
 		len = 4 - prot_page;  // based on starting page
 		break;
@@ -950,7 +1055,8 @@ int read_administrativedata(struct w1_slave *sl, int admin_destination, int prot
 	default:
 		len = 0;
 		break;
-	};
+	}
+	;
 
 	// Select device
 	if (!deviceselect(sl)) {
@@ -988,7 +1094,7 @@ int read_administrativedata(struct w1_slave *sl, int admin_destination, int prot
 	slave_crc16 = 0;
 	dprintf("DS28EL35 : Administration data: ");
 	for (i = 0; i < len; i++) {
-		dprintf("%02X ",data[i]);
+		dprintf("%02X ", data[i]);
 		docrc16(data[i]);
 	}
 	dprintf("\n");
@@ -1028,11 +1134,10 @@ out:
  */
 int set_pageprotection(struct w1_slave *sl, int protect_flags, int object, int cont)
 {
-	int i,cs;
+	int i, cs;
 	uchar buf[256];
 
-	if (!cont)
-	{
+	if (!cont) {
 		// Select device
 		if (!deviceselect(sl))
 			return FALSE;
@@ -1057,9 +1162,7 @@ int set_pageprotection(struct w1_slave *sl, int protect_flags, int object, int c
 		// check First slave_crc16
 		if (slave_crc16 != 0xB001)
 			return FALSE;
-	}
-	else
-	{
+	} else  {
 		// send just parameter
 		buf[0] = protect_flags | object;
 
@@ -1105,7 +1208,7 @@ int set_pageprotection(struct w1_slave *sl, int protect_flags, int object, int c
  */
 int decrement_counter(struct w1_slave *sl)
 {
-	int i,cs;
+	int i, cs;
 	uchar buf[256];
 
 	// Select device
@@ -1216,7 +1319,7 @@ int w1_ds28el35_verifyecdsa(struct w1_slave *sl)
 		rt = -1;
 		goto out;
 	}
-	dprintf("DS28EL35: %s\n",(rslt) ? " SUCCESS" : "FAIL");
+	dprintf("DS28EL35: %s\n", (rslt) ? " SUCCESS" : "FAIL");
 
 	// Read and Verify Certificate
 	dprintf("DS28EL35: Read and verify certificate\n");
@@ -1226,13 +1329,12 @@ int w1_ds28el35_verifyecdsa(struct w1_slave *sl)
 		goto out;
 	}
 #ifdef DEBUG_KEY
-	else
-	{
-		dprintf("Certificate r: %s\n",device_cert_r);
-		dprintf("			s: %s\n",device_cert_s);
+	else{
+		dprintf("Certificate r: %s\n", device_cert_r);
+		dprintf("			s: %s\n", device_cert_s);
 	}
 #endif
-	dprintf("DS28EL35: %s\n",(rslt) ? " SUCCESS" : "FAIL");
+	dprintf("DS28EL35: %s\n", (rslt) ? " SUCCESS" : "FAIL");
 
 	// Read User page and verify Signature
 	pg = 0;
@@ -1244,31 +1346,26 @@ int w1_ds28el35_verifyecdsa(struct w1_slave *sl)
 		goto out;
 	}
 #ifdef DEBUG_KEY
-	else
-	{
+	else{
 		dprintf("Page Data: ");
 		for (i = 0; i < 32; i++)
-			dprintf("%02X",buf[i]);
+			dprintf("%02X", buf[i]);
 		dprintf("\nChallenge: ");
 		for (i = 0; i < 32; i++)
-			dprintf("%02X",challenge[i]);
+			dprintf("%02X", challenge[i]);
 		dprintf("\nSignature r: ");
 		for (i = 0; i < 24; i++)
-			dprintf("%02X",sig_r[i]);
+			dprintf("%02X", sig_r[i]);
 		dprintf("\n			s: ");
 		for (i = 0; i < 24; i++)
-			dprintf("%02X",sig_s[i]);
+			dprintf("%02X", sig_s[i]);
 		dprintf("\n");
 	}
 #endif
-	dprintf("DS28EL35: %s\n",(rslt) ? " SUCCESS" : "FAIL");
+	dprintf("DS28EL35: %s\n", (rslt) ? " SUCCESS" : "FAIL");
 
 out:
-	total_run++;
-	if(!rslt)	fail_run++;
-	pr_info("%s:DS28EL35: %s\n",__func__, (rslt) ? " SUCCESS" : "FAIL");
-	pr_info("%s: FAIL : %d TOTAL : %d\n", __func__, fail_run, total_run);
-	dprintf("DS28EL35 Verify ECDSA: %s, rt=%d\n",(rt) ? "FAIL" : " SUCCESS", rt);
+	dprintf("DS28EL35 Verify ECDSA: %s, rt=%d\n", (rt) ? "FAIL" : " SUCCESS", rt);
 	dprintf("-------------------------------------------------------\n");
 
 	return rt;
@@ -1279,27 +1376,27 @@ out:
 //
 void print_str_reverse_endian(char *str)
 {
-   int i;
-   int len = strlen(str);
+	int i;
+	int len = strlen(str);
 
-   // only print if multple of 2
-   if ((len % 2) != 0)
-      return;
+	// only print if multple of 2
+	if ((len % 2) != 0)
+		return;
 
-   // print byte at a time
-   for (i = (len - 1); i >= 0; i -= 2)
-      dprintf("%X%X",str[i-1], str[i]);
+	// print byte at a time
+	for (i = (len - 1); i >= 0; i -= 2)
+		dprintf("%X%X", str[i - 1], str[i]);
 }
 
 static ssize_t w1_ds28el35_read_user_eeprom(struct device *device,
-	struct device_attribute *attr, char *buf);
+					    struct device_attribute *attr, char *buf);
 
 static struct device_attribute w1_read_user_eeprom_attr =
 	__ATTR(read_eeprom, S_IRUGO, w1_ds28el35_read_user_eeprom, NULL);
 
 // read 64 bytes user eeprom data
 static ssize_t w1_ds28el35_read_user_eeprom(struct device *device,
-	struct device_attribute *attr, char *buf)
+					    struct device_attribute *attr, char *buf)
 {
 	struct w1_slave *sl = dev_to_w1_slave(device);
 	u8 rdbuf[64];
@@ -1307,7 +1404,7 @@ static ssize_t w1_ds28el35_read_user_eeprom(struct device *device,
 	ssize_t c = PAGE_SIZE;
 
 	// read page 0
-	page_num=0;
+	page_num = 0;
 	c -= snprintf(buf + PAGE_SIZE - c, c, "page %d read\n", page_num);
 	result = read_memorypage(sl, 0, page_num, &rdbuf[0], 0);
 	if (result == FALSE) {
@@ -1319,7 +1416,7 @@ static ssize_t w1_ds28el35_read_user_eeprom(struct device *device,
 	c -= snprintf(buf + PAGE_SIZE - c, c, "\npage %d read done\n", page_num);
 
 	// read page 1
-	page_num=1;
+	page_num = 1;
 	result = read_memorypage(sl, 0, page_num, &rdbuf[32], 0);
 
 	if (result == FALSE) {
@@ -1333,72 +1430,43 @@ static ssize_t w1_ds28el35_read_user_eeprom(struct device *device,
 	return PAGE_SIZE - c;
 }
 
-static ssize_t w1_ds28el35_check_model(struct device *device,
-	struct device_attribute *attr, char *buf);
-
-static struct device_attribute w1_check_model_attr =
-	__ATTR(check_model, S_IRUGO, w1_ds28el35_check_model, NULL);
-
-// check MODEL for cover
-static ssize_t w1_ds28el35_check_model(struct device *device,
-	struct device_attribute *attr, char *buf)
-{
-	// read cover model
-	return sprintf(buf, "%d\n", model);
-}
-
-static ssize_t w1_ds28el35_check_detect(struct device *device,
-	struct device_attribute *attr, char *buf);
-
-static struct device_attribute w1_check_detect_attr =
-	__ATTR(check_detect, S_IRUGO, w1_ds28el35_check_detect, NULL);
-
-// check detect for cover
-static ssize_t w1_ds28el35_check_detect(struct device *device,
-	struct device_attribute *attr, char *buf)
-{
-	detect = w1_read_detect_state();
-	// read cover detect
-	return sprintf(buf, "%d\n", detect);
-}
-
 static ssize_t w1_ds28el35_check_color(struct device *device,
-	struct device_attribute *attr, char *buf);
+				       struct device_attribute *attr, char *buf);
 
 static struct device_attribute w1_check_color_attr =
 	__ATTR(check_color, S_IRUGO, w1_ds28el35_check_color, NULL);
 
 // check COLOR for cover
 static ssize_t w1_ds28el35_check_color(struct device *device,
-	struct device_attribute *attr, char *buf)
+				       struct device_attribute *attr, char *buf)
 {
 	// read cover color
-	return sprintf(buf, "%d\n", color);
+	return sprintf(buf, "%d\n", w1_color);
 }
 
 static ssize_t w1_ds28el35_check_id(struct device *device,
-	struct device_attribute *attr, char *buf);
+				    struct device_attribute *attr, char *buf);
 
 static struct device_attribute w1_check_id_attr =
 	__ATTR(check_id, S_IRUGO, w1_ds28el35_check_id, NULL);
 
 // check ID for cover
 static ssize_t w1_ds28el35_check_id(struct device *device,
-	struct device_attribute *attr, char *buf)
+				    struct device_attribute *attr, char *buf)
 {
 	// read cover id
-	return sprintf(buf, "%d\n", id);
+	return sprintf(buf, "%d\n", w1_id);
 }
 
 static ssize_t w1_ds28el35_verify_mac(struct device *device,
-	struct device_attribute *attr, char *buf);
+				      struct device_attribute *attr, char *buf);
 
 static struct device_attribute w1_verifymac_attr =
 	__ATTR(verify_mac, S_IRUGO, w1_ds28el35_verify_mac, NULL);
 
 // verified mac value between the device and AP
 static ssize_t w1_ds28el35_verify_mac(struct device *device,
-	struct device_attribute *attr, char *buf)
+				      struct device_attribute *attr, char *buf)
 {
 	struct w1_slave *sl = dev_to_w1_slave(device);
 	int result;
@@ -1412,9 +1480,10 @@ static int w1_ds28el35_get_buffer(struct w1_slave *sl, uchar *rdbuf, int retry_l
 {
 	int ret = 0, retry = 0;
 	bool rslt = false;
-	while((rslt == FALSE) && (retry < retry_limit)) {
+
+	while ((rslt == FALSE) && (retry < retry_limit)) {
 		rslt = read_memorypage(sl, 0, 0, &rdbuf[0], 0);
-		if(rslt == FALSE )
+		if (rslt == FALSE)
 			pr_info("%s : error %d\n", __func__, rslt);
 
 		retry++;
@@ -1427,25 +1496,29 @@ static int w1_ds28el35_get_buffer(struct w1_slave *sl, uchar *rdbuf, int retry_l
 	return ret;
 }
 
-#ifdef CONFIG_W1_SN
 static const int sn_cdigit[19] = {
 	0x0e, 0x0d, 0x1f, 0x0b, 0x1c,
 	0x12, 0x0f, 0x1e, 0x0a, 0x13,
 	0x14, 0x15, 0x19, 0x16, 0x17,
-	0x20, 0x1b, 0x1d, 0x11};
+	0x20, 0x1b, 0x1d, 0x11
+};
 
-static bool w1_ds28e15_check_digit(const uchar *sn)
+static bool w1_ds28el35_check_digit(const uchar *sn)
 {
 	int i, tmp1 = 0, tmp2 = 0;
 	int cdigit = sn[3];
 
-	for (i=4;i<10;i++)
+	if (cdigit == 0x1e)
+		return true;
+
+	for (i = 4; i < 10; i++)
 		tmp1 += sn[i];
 
-	tmp1 += sn[4]*5;
+	tmp1 += sn[4] * 5;
 	tmp2 = (tmp1 * sn[9] * sn[13]) % 19;
 
 	tmp1 = (sn[10] + sn[12]) * 3 + (sn[11] + sn[13]) * 6 + 14;
+	pr_info("%s: check digit %x\n", __func__, sn_cdigit[((tmp1 + tmp2) % 19)]);
 
 	if (cdigit == sn_cdigit[((tmp1 + tmp2) % 19)])
 		return true;
@@ -1453,121 +1526,88 @@ static bool w1_ds28e15_check_digit(const uchar *sn)
 		return false;
 }
 
-static uchar w1_ds28e15_char_convert(uchar c)
+static uchar w1_ds28el35_char_convert(uchar c)
 {
 	char ctable[36] = {
-	'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-	'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K',
-	'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W',
-	'X', 'Y', 'Z', 'I', 'O', 'U'};
+		'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K',
+		'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W',
+		'X', 'Y', 'Z', 'I', 'O', 'U'
+	};
 
 	return ctable[c];
 }
 
-static void w1_ds28e15_slave_sn(const uchar *rdbuf)
+static void w1_ds28el35_slave_sn(const uchar *rdbuf)
 {
 	int i;
 	u8 sn[15];
 
+/* To restrict debugging log */
 	sn[14] = 0;
 
-	if (w1_ds28e15_check_digit(&rdbuf[4])) {
-		for (i = 0 ; i < 14 ; i++)
-			sn[i] = w1_ds28e15_char_convert(rdbuf[i+4]);
+	if (w1_ds28el35_check_digit(&rdbuf[4])) {
+		for (i = 0; i < 14; i++)
+			sn[i] = w1_ds28el35_char_convert(rdbuf[i + 4]);
 
-		for (i = 0 ; i < 14 ; i++)
-			g_sn[i] = sn[13 - i];
+		pr_info("%s: %s\n", __func__, sn);
+		for (i = 0; i < 14; i++)
+			w1_g_sn[i] = sn[13 - i];
 	} else {
+/* We will not convert here, because the check digit was wrong */
+		for (i = 0 ; i < 14 ; i++)
+			sn[i] = w1_ds28el35_char_convert(rdbuf[i + 4]);
 		pr_info("%s: sn is not good %s\n", __func__, sn);
 	}
 }
-#endif
 
-static void w1_ds28el35_update_slave_info(struct w1_slave *sl) {
+static void w1_ds28el35_update_slave_info(struct w1_slave *sl)
+{
 	u8 rdbuf[32];
-	int ret, retry = 0;
+	int ret, retry, success = 0;
 
-	ret = w1_ds28el35_get_buffer(sl, &rdbuf[0], 10);
-	if(ret != 0)
-		pr_info("%s : fail to get buffer %d\n", __func__, ret);
+	for (retry = 0; retry < 10; retry++) {
+		ret = w1_ds28el35_get_buffer(sl, &rdbuf[0], 10);
+		if (ret != 0) {
+			pr_info("%s : fail to get buffer %d\n", __func__, ret);
+			continue;
+		}
 
-	while((rdbuf[0] > sl->id_max) || (rdbuf[1] > sl->color_max)) {
-		printk(KERN_ERR "%s: out of range : %d %d \n", __func__, rdbuf[0], rdbuf[1]);
+		if (rdbuf[CO_INDEX] > CO_MAX)
+			continue;
+		if (rdbuf[MD_INDEX] < MD_MIN || rdbuf[MD_INDEX] > MD_MAX)
+			continue;
+		if ((rdbuf[ID_INDEX] <= ID_MAX)
+				|| (rdbuf[ID_INDEX] >= ID_MIN2 && rdbuf[ID_INDEX] <= ID_MAX2)) {
 
-		if(retry > 10) {
-			printk(KERN_ERR "%s: out of range over 10 times.\n", __func__);
-
-			pr_info("%s: Change ID(%d) & Color(%d) to Default Value(%d, %d)",
-				__func__, rdbuf[0], rdbuf[1], ID_DEFAULT, CO_DEFAULT);
-			rdbuf[0] = ID_DEFAULT;
-			rdbuf[1] = CO_DEFAULT;
-
+			w1_model = rdbuf[MD_INDEX];
+			w1_color = rdbuf[CO_INDEX];
+			w1_id = rdbuf[ID_INDEX];
+			pr_info("%s retry count(%d), Read ID(%d) & Color(%d) & Model(%d)\n"
+				, __func__, retry, w1_id, w1_color, w1_model);
+			success++;
 			break;
 		}
-		ret = w1_ds28el35_get_buffer(sl, &rdbuf[0], 10);
-		if(ret != 0)
-			pr_info("%s : fail to get buffer %d\n", __func__, ret);
 
-		retry++;
 	}
-
-	//read page 0, ID is 0 ~ 7 bit(rdbuf[0])
-	id = rdbuf[0];
-
-	// read page 0, COLOR is 8 ~ 15 bit(rdbuf[1])
-	color = rdbuf[1];
-
-	// read page 0, MODEL is 24 ~ 31 bit(rdbuf[3])
-	model = rdbuf[3];
-
-	attached = true;
-
-	pr_info("%s Read Model(%d) & ID(%d) & Color(%d) & Verification State(%d)\n",
-			__func__, model, id, color, verification);
-#ifdef CONFIG_W1_SN
-	w1_ds28e15_slave_sn(&rdbuf[0]);
+	if (!success) {
+		pr_info("%s Before change ID(%d) & Color(%d) & Model(%d)\n"
+				, __func__, w1_id, w1_color, w1_model);
+#ifdef CONFIG_TB_DS28EL35
+		w1_id = TB_ID_DEFAULT;
+		w1_color = CO_DEFAULT;
+		w1_model = TB_MD_DEFAULT;
+#else
+		w1_id = ID_DEFAULT;
+		w1_color = CO_DEFAULT;
+		w1_model = MD_DEFAULT;
 #endif
-}
-
-static int w1_parse_dt(struct w1_slave *sl)
-{
-	struct device_node* np;
-
-	np = of_find_node_by_path("/soc/ds28el35");
-	if (!np) {
-		pr_err("%s: get ds28e15 node failed\n", __func__);
-		return -ENODEV;
 	}
-	of_property_read_u32(np, "ds28el35,id-min", &sl->id_min);
-	of_property_read_u32(np, "ds28el35,id-max", &sl->id_max);
-	of_property_read_u32(np, "ds28el35,id-default", &sl->id_default);
-	of_property_read_u32(np, "ds28el35,color-min", &sl->color_min);
-	of_property_read_u32(np, "ds28el35,color-max", &sl->color_max);
-	of_property_read_u32(np, "ds28el35,color-default", &sl->color_default);
-	pr_info("%s : id min[%d] max[%d] default[%d]\n", __func__,
-			sl->id_min, sl->id_max, sl->id_default);
-	pr_info("%s : color min[%d] max[%d] default[%d]\n", __func__,
-			sl->color_min, sl->color_max, sl->color_default);
 
-	return 0;
+	w1_attached = true;
+	w1_ds28el35_slave_sn(&rdbuf[0]);
 }
 
-static void w1_set_default_range(struct w1_slave *sl)
-{
-	pr_info("%s : get default range\n", __func__);
-
-	sl->id_min = ID_MIN;
-	sl->id_max = ID_MAX;
-	sl->id_default = ID_DEFAULT;
-	sl->color_min = CO_MIN;
-	sl->color_max = CO_MAX;
-	sl->color_default = CO_DEFAULT;
-
-	pr_info("%s : id min[%d] max[%d] default[%d]\n", __func__,
-			sl->id_min, sl->id_max, sl->id_default);
-	pr_info("%s : color min[%d] max[%d] default[%d]\n", __func__,
-			sl->color_min, sl->color_max, sl->color_default);
-}
 
 //--------------------------------------------------------------------------
 // DS28EL35 device driver function
@@ -1577,18 +1617,16 @@ static int w1_ds28el35_add_slave(struct w1_slave *sl)
 {
 	int err = 0;
 
-	printk(KERN_ERR "\nw1_ds28el35_add_slave start\n");
+#ifdef CONFIG_W1_CF
+	u8 rdbuf[32];
+#endif  /* CONFIG_W1_CF */
 
-	err = w1_parse_dt(sl);
-	if (err) {
-		printk(KERN_ERR "%s: w1_parse_dt error\n", __func__);
-		w1_set_default_range(sl);
-	}
+	printk(KERN_ERR "\nw1_ds28el35_add_slave start\n");
 
 	err = device_create_file(&sl->dev, &w1_read_user_eeprom_attr);
 	if (err) {
-		device_remove_file(&sl->dev, &w1_read_user_eeprom_attr);
 		printk(KERN_ERR "%s: w1_read_user_eeprom_attr error\n", __func__);
+		device_remove_file(&sl->dev, &w1_read_user_eeprom_attr);
 		return err;
 	}
 
@@ -1598,6 +1636,15 @@ static int w1_ds28el35_add_slave(struct w1_slave *sl)
 		printk(KERN_ERR "%s: w1_verifymac_attr error\n", __func__);
 		return err;
 	}
+
+#ifdef CONFIG_W1_CF
+	err = device_create_file(&sl->dev, &w1_cf_attr);
+	if (err) {
+		device_remove_file(&sl->dev, &w1_cf_attr);
+		printk(KERN_ERR "%s: w1_cf_attr error\n", __func__);
+		return err;
+	}
+#endif  /* CONFIG_W1_CF */
 
 	err = device_create_file(&sl->dev, &w1_check_id_attr);
 	if (err) {
@@ -1613,28 +1660,26 @@ static int w1_ds28el35_add_slave(struct w1_slave *sl)
 		return err;
 	}
 
-	err = device_create_file(&sl->dev, &w1_check_model_attr);
-	if (err) {
-		device_remove_file(&sl->dev, &w1_check_model_attr);
-		printk(KERN_ERR "%s: w1_check_model_attr error\n", __func__);
-		return err;
-	}
-
-	err = device_create_file(&sl->dev, &w1_check_detect_attr);
-	if (err) {
-		device_remove_file(&sl->dev, &w1_check_detect_attr);
-		printk(KERN_ERR "%s: w1_check_detect_attr error\n", __func__);
-		return err;
-	}
+	/* copy rom id to use mac calculation */
+	memcpy(rom_no, (u8 *)&sl->reg_num, sizeof(sl->reg_num));
 
 	if (init_verify) {
 		err = w1_ds28el35_verifyecdsa(sl);
-		verification = err;
+		w1_verification = err;
 		printk(KERN_ERR "w1_ds28el35_verifyecdsa\n");
-	}
-	if(!verification)
-		w1_ds28el35_update_slave_info(sl);
 
+	}
+	if (!w1_verification) {
+#ifdef CONFIG_W1_CF
+		if (w1_ds28el35_read_memory_check(sl, 0, 0, rdbuf, 32))
+			w1_cf_node = 1;
+		else
+			w1_cf_node = 0;
+
+		pr_info("%s: COVER CLASS(%d)\n", __func__, w1_cf_node);
+#endif  /* CONFIG_W1_CF */
+		w1_ds28el35_update_slave_info(sl);
+	}
 	printk(KERN_ERR "w1_ds28el35_add_slave end, err=%d\n", err);
 	return err;
 }
@@ -1645,11 +1690,9 @@ static void w1_ds28el35_remove_slave(struct w1_slave *sl)
 	device_remove_file(&sl->dev, &w1_verifymac_attr);
 	device_remove_file(&sl->dev, &w1_check_id_attr);
 	device_remove_file(&sl->dev, &w1_check_color_attr);
-	device_remove_file(&sl->dev, &w1_check_model_attr);
-	device_remove_file(&sl->dev, &w1_check_detect_attr);
 
-	verification = -1;
-	attached = false;
+	w1_verification = -1;
+	w1_attached = false;
 	printk(KERN_ERR "\nw1_ds28el35_remove_slave\n");
 }
 
@@ -1679,3 +1722,4 @@ module_exit(w1_ds28el35_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("TaiEup Kim <clark.kim@maximintegrated.com>");
 MODULE_DESCRIPTION("1-wire Driver for Maxim/Dallas DS23EL35 DeepCover Secure Authenticator IC");
+

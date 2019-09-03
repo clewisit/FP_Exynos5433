@@ -57,8 +57,12 @@ obj-$(CONFIG_CONNECTOR)		+= connector/
 obj-$(CONFIG_FB_I810)           += video/i810/
 obj-$(CONFIG_FB_INTEL)          += video/intelfb/
 
+obj-$(CONFIG_VBUS_NOTIFIER)	+= staging/samsung/sec_notifier/
+obj-$(CONFIG_USE_MUIC)		+= muic/
+
 obj-$(CONFIG_PARPORT)		+= parport/
-obj-y				+= base/ block/ misc/ mfd/ nfc/ soc/
+obj-y				+= base/ block/ misc/ mfd/ nfc/
+
 obj-$(CONFIG_NUBUS)		+= nubus/
 obj-y				+= macintosh/
 obj-$(CONFIG_IDE)		+= ide/
@@ -143,6 +147,7 @@ obj-y				+= clk/
 obj-$(CONFIG_MAILBOX)		+= mailbox/
 obj-$(CONFIG_HWSPINLOCK)	+= hwspinlock/
 obj-$(CONFIG_NFC)		+= nfc/
+obj-$(CONFIG_GPS_BCMxxxxx)		+= gps/
 obj-$(CONFIG_IOMMU_SUPPORT)	+= iommu/
 obj-$(CONFIG_REMOTEPROC)	+= remoteproc/
 obj-$(CONFIG_RPMSG)		+= rpmsg/
@@ -152,6 +157,8 @@ obj-$(CONFIG_VIRT_DRIVERS)	+= virt/
 obj-$(CONFIG_HYPERV)		+= hv/
 
 obj-$(CONFIG_PM_DEVFREQ)	+= devfreq/
+obj-$(CONFIG_BATTERY_SAMSUNG)	+= battery/
+obj-y		+= motor/
 obj-$(CONFIG_EXTCON)		+= extcon/
 obj-$(CONFIG_MEMORY)		+= memory/
 obj-$(CONFIG_IIO)		+= iio/
@@ -159,21 +166,14 @@ obj-$(CONFIG_VME_BUS)		+= vme/
 obj-$(CONFIG_IPACK_BUS)		+= ipack/
 obj-$(CONFIG_NTB)		+= ntb/
 
-#MobiCore
-obj-$(CONFIG_MOBICORE_SUPPORT)  += gud/
-
-obj-$(CONFIG_CORESIGHT)		+= coresight/
 obj-$(CONFIG_ESOC)		+= esoc/
 
-obj-$(CONFIG_BIF)		+= bif/
-obj-$(CONFIG_SENSORS)		+= sensors/
-obj-$(CONFIG_SENSORS_SSC)	+= sensors/
-obj-$(CONFIG_SENSORS_SSP)	+= sensorhub/
-#motor
-obj-y				+= motor/
+# irled driver
+obj-$(CONFIG_IRLED)		+= irled/
+obj-$(CONFIG_ICE40LM_FPGA)	+= ice40lm/
 
-obj-$(CONFIG_BATTERY_SAMSUNG)	+= battery/
-
+# Mobicore driver
+obj-$(CONFIG_MOBICORE_DRIVER)   += gud/
 obj-$(CONFIG_SENSORS_FINGERPRINT)	+= fingerprint/
-
-obj-$(CONFIG_IRLED_GPIO)	+= irled/
+obj-$(CONFIG_SENSORS_SSP)		+= sensorhub/
+obj-$(CONFIG_SENSORS_CORE)	+= sensors/

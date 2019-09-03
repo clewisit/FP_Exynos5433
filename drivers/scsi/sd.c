@@ -53,7 +53,7 @@
 #include <linux/pm_runtime.h>
 #include <asm/uaccess.h>
 #include <asm/unaligned.h>
-#ifdef CONFIG_USB_STORAGE_DETECT
+#ifdef CONFIG_USB_HOST_NOTIFY
 #include <linux/kthread.h>
 #endif
 
@@ -2732,9 +2732,8 @@ static int sd_revalidate_disk(struct gendisk *disk)
 	 * react badly if we do.
 	 */
 	if (sdkp->media_present) {
-#ifdef CONFIG_USB_STORAGE_DETECT
+#ifdef CONFIG_USB_HOST_NOTIFY
 		disk->media_present = 1;
-		sd_printk(KERN_INFO, sdkp, "%s\n", __func__);
 #endif
 		sd_read_capacity(sdkp, buffer);
 
@@ -2838,7 +2837,7 @@ static int sd_format_disk_name(char *prefix, int index, char *buf, int buflen)
 	return 0;
 }
 
-#ifdef CONFIG_USB_STORAGE_DETECT
+#ifdef CONFIG_USB_HOST_NOTIFY
 static void sd_media_state_emit(struct scsi_disk *sdkp)
 {
 	struct gendisk *gd = sdkp->disk;
@@ -2878,8 +2877,7 @@ static void sd_scanpartition_async(void *data, async_cookie_t cookie)
 	bdev->bd_invalidated = 1;
 	err = blkdev_get(bdev, FMODE_READ, NULL);
 	if (err < 0) {
-		sd_printk(KERN_NOTICE, sdkp,
-			"maybe no media, delete partition\n");
+		sd_printk(KERN_NOTICE, sdkp, "no media, delete partition\n");
 		disk_part_iter_init(&piter, gd, DISK_PITER_INCL_EMPTY);
 		while ((part = disk_part_iter_next(&piter)))
 			delete_partition(gd, part->partno);
@@ -2914,13 +2912,11 @@ static int sd_media_scan_thread(void *__sdkp)
 	int ret;
 	sdkp->async_end = 1;
 	sdkp->device->changed = 0;
-
 	while (!kthread_should_stop()) {
 		wait_event_interruptible_timeout(sdkp->delay_wait,
 			(sdkp->thread_remove && sdkp->async_end), 3*HZ);
 		if (sdkp->thread_remove && sdkp->async_end)
 			break;
-
 		ret = sd_check_events(sdkp->disk, 0);
 
 		if (sdkp->prv_media_present
@@ -2939,7 +2935,6 @@ static int sd_media_scan_thread(void *__sdkp)
 	complete_and_exit(&sdkp->scanning_done, 0);
 }
 #endif
-
 /*
  * The asynchronous part of sd_probe
  */
@@ -2987,6 +2982,11 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 		gd->flags |= GENHD_FL_REMOVABLE;
 		gd->events |= DISK_EVENT_MEDIA_CHANGE;
 	}
+#ifdef CONFIG_USB_HOST_NOTIFY
+	if (sdp->host->by_usb)
+		gd->interfaces = GENHD_IF_USB;
+	msleep(500);
+#endif
 
 	blk_pm_runtime_init(sdp->request_queue, dev);
 	if (sdp->autosuspend_delay >= 0)
@@ -2998,7 +2998,7 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 #endif
 
 	add_disk(gd);
-#ifdef CONFIG_USB_STORAGE_DETECT
+#ifdef CONFIG_USB_HOST_NOTIFY
 	sdkp->prv_media_present = sdkp->media_present;
 #endif
 	if (sdkp->capacity)
@@ -3010,7 +3010,7 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 		  sdp->removable ? "removable " : "");
 	scsi_autopm_put_device(sdp);
 	put_device(&sdkp->dev);
-#ifdef CONFIG_USB_STORAGE_DETECT
+#ifdef CONFIG_USB_HOST_NOTIFY
 	if (sdp->host->by_usb) {
 		if (!IS_ERR(sdkp->th))
 			wake_up_process(sdkp->th);
@@ -3105,6 +3105,19 @@ static int sd_probe(struct device *dev)
 
 	get_device(dev);
 	dev_set_drvdata(dev, sdkp);
+#ifdef CONFIG_USB_HOST_NOTIFY
+	if (sdp->host->by_usb) {
+		init_waitqueue_head(&sdkp->delay_wait);
+		init_completion(&sdkp->scanning_done);
+		sdkp->thread_remove = 0;
+		sdkp->th = kthread_create(sd_media_scan_thread,
+				sdkp, "sd-media-scan");
+		if (IS_ERR(sdkp->th)) {
+			pr_err("Unable to start the device-scanning thread\n");
+			complete(&sdkp->scanning_done);
+		}
+	}
+#endif
 
 #ifdef CONFIG_USB_STORAGE_DETECT
 	if (sdp->host->by_usb) {
@@ -3167,6 +3180,15 @@ static int sd_remove(struct device *dev)
 #endif
 
 	scsi_autopm_get_device(sdkp->device);
+#ifdef CONFIG_USB_HOST_NOTIFY
+	sdkp->disk->media_present = 0;
+	if (sdkp->device->host->by_usb) {
+		sdkp->thread_remove = 1;
+		wake_up_interruptible(&sdkp->delay_wait);
+		wait_for_completion(&sdkp->scanning_done);
+		sd_printk(KERN_NOTICE, sdkp, "scan thread kill success\n");
+	}
+#endif
 
 	async_synchronize_full_domain(&scsi_sd_probe_domain);
 	blk_queue_prep_rq(sdkp->device->request_queue, scsi_prep_fn);

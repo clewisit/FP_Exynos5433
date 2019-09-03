@@ -15,9 +15,6 @@
 #include "ssp.h"
 #include <linux/math64.h>
 
-#include <linux/iio/iio.h>
-#include <linux/iio/events.h>
-
 #define BATCH_IOCTL_MAGIC		0xFC
 
 struct batch_config {
@@ -25,14 +22,22 @@ struct batch_config {
 	int64_t delay;
 	int flag;
 };
+
 /*************************************************************************/
 /* SSP data delay function                                              */
 /*************************************************************************/
 
 int get_msdelay(int64_t dDelayRate) {
+	/*
+	 * From Android 5.0, There is MaxDelay Concept.
+	 * If App request lower frequency then MaxDelay,
+	 * Sensor have to work with MaxDelay.
+	 */
+
+	if (dDelayRate > 200000000)
+		dDelayRate = 200000000;
 	return div_s64(dDelayRate, 1000000);
 }
-
 
 static void enable_sensor(struct ssp_data *data,
 	int iSensorType, int64_t dNewDelay)
@@ -51,7 +56,7 @@ static void enable_sensor(struct ssp_data *data,
 
 	switch (data->aiCheckStatus[iSensorType]) {
 	case ADD_SENSOR_STATE:
-		pr_debug("[SSP]: %s - add %u, New = %lldns\n",
+		ssp_dbg("[SSP]: %s - add %u, New = %lldns\n",
 			 __func__, 1 << iSensorType, dNewDelay);
 
 		memcpy(&uBuf[0], &dMsDelay, 4);
@@ -82,9 +87,6 @@ static void enable_sensor(struct ssp_data *data,
 			proximity_open_lcd_ldi(data);
 			proximity_open_calibration(data);
 			set_proximity_threshold(data, data->uProxHiThresh, data->uProxLoThresh);
-
-			input_report_abs(data->prox_input_dev, ABS_DISTANCE, 1);
-			input_sync(data->prox_input_dev);
 		}
 		break;
 	case RUNNING_SENSOR_STATE:
@@ -92,7 +94,7 @@ static void enable_sensor(struct ssp_data *data,
 			== get_msdelay(data->adDelayBuf[iSensorType]))
 			break;
 
-		pr_debug("[SSP]: %s - Change %u, New = %lldns\n",
+		ssp_dbg("[SSP]: %s - Change %u, New = %lldns\n",
 			__func__, 1 << iSensorType, dNewDelay);
 
 		memcpy(&uBuf[0], &dMsDelay, 4);
@@ -148,7 +150,8 @@ static int ssp_remove_sensor(struct ssp_data *data,
 {
 	u8 uBuf[4];
 	int64_t dSensorDelay = data->adDelayBuf[uChangedSensor];
-	pr_debug("[SSP]: %s - remove sensor = %d, current state = %d\n",
+
+	ssp_dbg("[SSP]: %s - remove sensor = %d, current state = %d\n",
 		__func__, (1 << uChangedSensor), uNewEnable);
 
 	data->adDelayBuf[uChangedSensor] = DEFUALT_POLLING_DELAY;
@@ -226,7 +229,7 @@ static ssize_t show_sensors_enable(struct device *dev,
 {
 	struct ssp_data *data = dev_get_drvdata(dev);
 
-	pr_debug("[SSP]: %s - cur_enable = %d\n", __func__,
+	ssp_dbg("[SSP]: %s - cur_enable = %d\n", __func__,
 		 atomic_read(&data->aSensorEnable));
 
 	return sprintf(buf, "%9u\n", atomic_read(&data->aSensorEnable));
@@ -262,6 +265,7 @@ static ssize_t set_sensors_enable(struct device *dev,
 			!= (uNewEnable & (1 << uChangedSensor))) {
 
 			if (!(uNewEnable & (1 << uChangedSensor))) {
+				data->reportedData[uChangedSensor] = false;
 				ssp_remove_sensor(data, uChangedSensor,
 					uNewEnable); /* disable */
 			} else { /* Change to ADD_SENSOR_STATE from KitKat */
@@ -704,14 +708,15 @@ static DEVICE_ATTR(accel_poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
 	show_acc_delay, set_acc_delay);
 static DEVICE_ATTR(gyro_poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
 	show_gyro_delay, set_gyro_delay);
+static DEVICE_ATTR(uncalib_gyro_poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
+	show_uncalib_gyro_delay, set_uncalib_gyro_delay);
+static DEVICE_ATTR(mag_poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
+	show_mag_delay, set_mag_delay);
+static DEVICE_ATTR(uncal_mag_poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
+	show_uncal_mag_delay, set_uncal_mag_delay);
+
 static DEVICE_ATTR(ssp_flush, S_IWUSR | S_IWGRP,
 	NULL, set_flush);
-static struct device_attribute dev_attr_mag_poll_delay
-	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
-	show_mag_delay, set_mag_delay);
-static struct device_attribute dev_attr_uncal_mag_poll_delay
-	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
-	show_uncal_mag_delay, set_uncal_mag_delay);
 static struct device_attribute dev_attr_gesture_poll_delay
 	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
 	show_gesture_delay, set_gesture_delay);
@@ -727,9 +732,6 @@ static struct device_attribute dev_attr_temp_humi_poll_delay
 static struct device_attribute dev_attr_sig_motion_poll_delay
 	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
 	show_sig_motion_delay, set_sig_motion_delay);
-static struct device_attribute dev_attr_uncalib_gyro_poll_delay
-	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
-	show_uncalib_gyro_delay, set_uncalib_gyro_delay);
 static struct device_attribute dev_attr_step_cnt_poll_delay
 	= __ATTR(poll_delay, S_IRUGO | S_IWUSR | S_IWGRP,
 	show_step_cnt_delay, set_step_cnt_delay);
@@ -747,7 +749,10 @@ static struct device_attribute *mcu_attrs[] = {
 	&dev_attr_mcu_sleep_test,
 	&dev_attr_enable_irq,
 	&dev_attr_accel_poll_delay,
+	&dev_attr_mag_poll_delay,
+	&dev_attr_uncal_mag_poll_delay,
 	&dev_attr_gyro_poll_delay,
+	&dev_attr_uncalib_gyro_poll_delay,
 	&dev_attr_rot_poll_delay,
 	&dev_attr_game_rot_poll_delay,
 	&dev_attr_step_det_poll_delay,
@@ -845,7 +850,6 @@ static struct file_operations ssp_batch_fops = {
 	.unlocked_ioctl = ssp_batch_ioctl,
 };
 
-
 static void initialize_mcu_factorytest(struct ssp_data *data)
 {
 	sensors_register(data->mcu_device, data, mcu_attrs, "ssp_sensor");
@@ -871,25 +875,12 @@ int initialize_sysfs(struct ssp_data *data)
 		goto err_prox_input_dev;
 
 	if (device_create_file(&data->temp_humi_input_dev->dev,
-			&dev_attr_temp_humi_poll_delay))
-			goto err_temp_humi_input_dev;
-
-	if (device_create_file(&data->mag_input_dev->dev,
-		&dev_attr_mag_poll_delay))
-		goto err_mag_input_dev;
-
-	if (device_create_file(&data->uncal_mag_input_dev->dev,
-		&dev_attr_uncal_mag_poll_delay))
-		goto err_uncal_mag_input_dev;
+		&dev_attr_temp_humi_poll_delay))
+		goto err_temp_humi_input_dev;
 
 	if (device_create_file(&data->sig_motion_input_dev->dev,
 		&dev_attr_sig_motion_poll_delay))
 		goto err_sig_motion_input_dev;
-
-	if (device_create_file(&data->uncalib_gyro_input_dev->dev,
-		&dev_attr_uncalib_gyro_poll_delay))
-		goto err_uncalib_gyro_input_dev;
-
 	if (device_create_file(&data->step_cnt_input_dev->dev,
 		&dev_attr_step_cnt_poll_delay))
 		goto err_step_cnt_input_dev;
@@ -922,18 +913,9 @@ err_batch_io_dev:
 	device_remove_file(&data->step_cnt_input_dev->dev,
 		&dev_attr_step_cnt_poll_delay);
 err_step_cnt_input_dev:
-	device_remove_file(&data->uncalib_gyro_input_dev->dev,
-		&dev_attr_uncalib_gyro_poll_delay);
-err_uncalib_gyro_input_dev:
 	device_remove_file(&data->sig_motion_input_dev->dev,
 		&dev_attr_sig_motion_poll_delay);
 err_sig_motion_input_dev:
-	device_remove_file(&data->uncal_mag_input_dev->dev,
-		&dev_attr_uncal_mag_poll_delay);
-err_uncal_mag_input_dev:
-	device_remove_file(&data->mag_input_dev->dev,
-		&dev_attr_mag_poll_delay);
-err_mag_input_dev:
 	device_remove_file(&data->temp_humi_input_dev->dev,
 		&dev_attr_temp_humi_poll_delay);
 err_temp_humi_input_dev:
@@ -960,14 +942,8 @@ void remove_sysfs(struct ssp_data *data)
 		&dev_attr_prox_poll_delay);
 	device_remove_file(&data->temp_humi_input_dev->dev,
 		&dev_attr_temp_humi_poll_delay);
-	device_remove_file(&data->mag_input_dev->dev,
-		&dev_attr_mag_poll_delay);
-	device_remove_file(&data->uncal_mag_input_dev->dev,
-		&dev_attr_uncal_mag_poll_delay);
 	device_remove_file(&data->sig_motion_input_dev->dev,
 		&dev_attr_sig_motion_poll_delay);
-	device_remove_file(&data->uncalib_gyro_input_dev->dev,
-		&dev_attr_uncalib_gyro_poll_delay);
 	device_remove_file(&data->step_cnt_input_dev->dev,
 		&dev_attr_step_cnt_poll_delay);
 	ssp_batch_fops.unlocked_ioctl = NULL;

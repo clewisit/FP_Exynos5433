@@ -58,90 +58,76 @@ ecryptfs_encrypt_page_offset(struct ecryptfs_crypt_stat *crypt_stat,
 			     unsigned char *iv);
 
 #if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
-static int crypto_cc_reset_rng(struct crypto_rng *tfm)
-{
-    char *seed = NULL;
-    int read_bytes = 0;
-    int trialcount = 10;
-    int err = 0;
-    struct file *filp = NULL;
-    mm_segment_t oldfs;
-
-    seed = kmalloc(SEED_LEN, GFP_KERNEL);
-    if (!seed) {
-        ecryptfs_printk(KERN_ERR, "Failed to get memory space for seed\n");
-        goto out;
-    }
-
-    filp = filp_open("/dev/urandom", O_RDONLY, 0);
-    if (IS_ERR(filp)) {
-		ecryptfs_printk(KERN_ERR, "Failed to open /dev/urandom\n");
-        goto out;
-    }
-
-    oldfs = get_fs();
-    set_fs(KERNEL_DS);
-    memset((void *)seed, 0, SEED_LEN);
-
-    while (trialcount > 0) {
-        read_bytes += filp->f_op->read(filp, &(seed[read_bytes]), SEED_LEN-read_bytes, &filp->f_pos);
-
-        if (read_bytes != SEED_LEN)
-            trialcount--;
-        else
-            break;
-    }
-    set_fs(oldfs);
-
-    if (read_bytes != SEED_LEN) {
-        ecryptfs_printk(KERN_ERR, "Failed to get enough random bytes (read=%d/request=%d)\n", read_bytes, SEED_LEN);
-        err = -1;
-        goto out;
-    }
-
-    err = crypto_rng_reset(tfm, seed, SEED_LEN);
-    if (err)
-        crypto_free_rng(tfm);
-
-out:
-    if (seed) kfree(seed);
-    if (filp) filp_close(filp, NULL);
-    return err;
-}
-
 /**
  * crypto_cc_rng_get_bytes
  * @data: Buffer to get random bytes
  * @len: the lengh of random bytes
  */
-static int crypto_cc_rng_get_bytes(u8 *data, unsigned int len)
+static void crypto_cc_rng_get_bytes(u8 *data, unsigned int len)
 {
-    static struct crypto_rng *crypto_cc_rng = NULL;
-    struct crypto_rng *rng;
-    int err = 0;
+	struct crypto_rng *rng = NULL;
+	char *seed = NULL;
+	int read_bytes = 0;
+	int get_bytes = 0;
+	int trialcount = 10;
+	int ret = 0;
+	struct file *filp = NULL;
+	mm_segment_t oldfs;
 
-    if (!crypto_cc_rng) {
-        rng = crypto_alloc_rng("fips(ansi_cprng)", 0, 0);
-        err = PTR_ERR(rng);
-        if (IS_ERR(rng))
-            goto out;
+	seed = kmalloc(SEED_LEN, GFP_KERNEL);
+	if (!seed) {
+		ecryptfs_printk(KERN_ERR, "Failed to get memory space for seed\n");
+		goto err_out;
+	}
 
-        err = crypto_cc_reset_rng(rng);
-        if (err) {
-            crypto_free_rng(rng);
-            goto out;
-        }
-        crypto_cc_rng = rng;
-    }
+	filp = filp_open("/dev/random", O_RDONLY, 0);
+	if (IS_ERR(filp)) {
+		ecryptfs_printk(KERN_ERR, "Failed to open /dev/random\n");
+		goto err_out;
+	}
 
-    err = crypto_rng_get_bytes(crypto_cc_rng, data, len);
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+	memset((void *)seed, 0, SEED_LEN);
 
-    if (err != len)
-        ecryptfs_printk(KERN_ERR, "Error getting random bytes in CC mode (err=%d, len=%d)\n", err, len);
+	while (trialcount > 0) {
+                if ((get_bytes = (int)filp->f_op->read(filp, &(seed[read_bytes]), SEED_LEN-read_bytes, &filp->f_pos)) > 0)
+			read_bytes += get_bytes;
+		if (read_bytes != SEED_LEN)
+			trialcount--;
+		else
+			break;
+	}
+	set_fs(oldfs);
 
-out:
-    return err;
+	if (read_bytes != SEED_LEN) {
+		ecryptfs_printk(KERN_ERR, "Failed to get enough random bytes (read=%d/request=%d)\n", read_bytes, SEED_LEN);
+		goto err_out;
+	}
 
+	rng = crypto_alloc_rng("stdrng", 0, 0);
+	if (IS_ERR(rng)) {
+		ecryptfs_printk(KERN_ERR, "RNG allocateion fail \t Not Available: %ld\n", PTR_ERR(rng));
+		goto err_out;
+	}
+
+	ret = crypto_rng_reset(rng, seed, SEED_LEN);
+	if (ret < 0) {
+ 		ecryptfs_printk(KERN_ERR, "rng reset fail (%d)\n", ret);
+	}
+
+	ret = crypto_rng_get_bytes(rng, data, len);
+	if (ret < 0) {
+		ecryptfs_printk(KERN_ERR, "generate_random failed to generate random number (%d)\n", ret);
+	} else {
+		ecryptfs_printk(KERN_ERR, "generate_random succesfully generated random number (%d)\n", ret);
+	}
+	crypto_free_rng(rng);
+
+err_out :
+	if (seed) kfree(seed);
+	if (filp) filp_close(filp, NULL);
+        return;
 }
 #endif
 
@@ -464,19 +450,23 @@ int virt_to_scatterlist(const void *addr, int size, struct scatterlist *sg,
 	int offset;
 	int remainder_of_page;
 
-	sg_init_table(sg, sg_size);
+	if (sg)
+		sg_init_table(sg, sg_size);
 
 	while (size > 0 && i < sg_size) {
 		pg = virt_to_page(addr);
 		offset = offset_in_page(addr);
-		sg_set_page(&sg[i], pg, 0, offset);
+		if (sg)
+			sg_set_page(&sg[i], pg, 0, offset);
 		remainder_of_page = PAGE_CACHE_SIZE - offset;
 		if (size >= remainder_of_page) {
-			sg[i].length = remainder_of_page;
+			if (sg)
+				sg[i].length = remainder_of_page;
 			addr += remainder_of_page;
 			size -= remainder_of_page;
 		} else {
-			sg[i].length = size;
+			if (sg)
+				sg[i].length = size;
 			addr += size;
 			size = 0;
 		}
@@ -2099,7 +2089,7 @@ ecryptfs_process_key_cipher(struct crypto_blkcipher **key_tfm,
 						    "cbc");
 	else
 #endif
-		rc = ecryptfs_crypto_api_algify_cipher_name(&full_alg_name, cipher_name,
+	rc = ecryptfs_crypto_api_algify_cipher_name(&full_alg_name, cipher_name,
 						    "ecb");
 	if (rc)
 		goto out;
@@ -2298,7 +2288,7 @@ int ecryptfs_get_tfm_and_mutex_for_cipher_name(struct crypto_blkcipher **tfm,
 
 	mutex_lock(&key_tfm_list_mutex);
 #if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
-	if (mount_flags & ECRYPTFS_ENABLE_CC) {
+    if (mount_flags & ECRYPTFS_ENABLE_CC) {
 		strncpy(cipher_mode, ECRYPTFS_AES_CBC_MODE, ECRYPTFS_MAX_CIPHER_MODE_SIZE+1);
 	} else {
 		strncpy(cipher_mode, ECRYPTFS_AES_ECB_MODE, ECRYPTFS_MAX_CIPHER_MODE_SIZE+1);

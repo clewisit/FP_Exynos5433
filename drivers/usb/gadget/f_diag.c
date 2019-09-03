@@ -18,15 +18,13 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
-#include <linux/ratelimit.h>
-
-#include <mach/usbdiag.h>
 
 #include <linux/usb/composite.h>
 #include <linux/usb/gadget.h>
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
-#include <linux/kmemleak.h>
+
+#include "usbdiag.h"
 
 static DEFINE_SPINLOCK(ch_lock);
 static LIST_HEAD(usb_diag_ch_list);
@@ -36,22 +34,22 @@ static struct usb_interface_descriptor intf_desc = {
 	.bDescriptorType    =	USB_DT_INTERFACE,
 	.bNumEndpoints      =	2,
 	.bInterfaceClass    =	0xFF,
-/* #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE */
+#if defined(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE) || defined(CONFIG_SLP)
 	.bInterfaceSubClass =	0x10,
 	.bInterfaceProtocol =	0x01,
-/* #else
+#else
 	.bInterfaceSubClass =	0xFF,
 	.bInterfaceProtocol =	0xFF,
-#endif */
+#endif
 };
 
 static struct usb_endpoint_descriptor hs_bulk_in_desc = {
-	.bLength 			=	USB_DT_ENDPOINT_SIZE,
-	.bDescriptorType 	=	USB_DT_ENDPOINT,
+	.bLength			=	USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType	=	USB_DT_ENDPOINT,
 	.bEndpointAddress =	USB_DIR_IN,
-	.bmAttributes 		=	USB_ENDPOINT_XFER_BULK,
-	.wMaxPacketSize 	=	__constant_cpu_to_le16(512),
-	.bInterval 			=	0,
+	.bmAttributes		=	USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize		=	__constant_cpu_to_le16(512),
+	.bInterval			=	0,
 };
 static struct usb_endpoint_descriptor fs_bulk_in_desc = {
 	.bLength          =	USB_DT_ENDPOINT_SIZE,
@@ -119,7 +117,7 @@ static struct usb_descriptor_header *fs_diag_desc[] = {
 	(struct usb_descriptor_header *) &fs_bulk_in_desc,
 	(struct usb_descriptor_header *) &fs_bulk_out_desc,
 	NULL,
-	};
+};
 static struct usb_descriptor_header *hs_diag_desc[] = {
 	(struct usb_descriptor_header *) &intf_desc,
 	(struct usb_descriptor_header *) &hs_bulk_in_desc,
@@ -145,6 +143,9 @@ static struct usb_descriptor_header *ss_diag_desc[] = {
  * @out_desc: USB OUT endpoint descriptor struct
  * @read_pool: List of requests used for Rx (OUT ep)
  * @write_pool: List of requests used for Tx (IN ep)
+ * @config_work: Work item schedule after interface is configured to notify
+ *               CONNECT event to diag char driver and updating product id
+ *               and serial number to MODEM/IMEM.
  * @lock: Spinlock to proctect read_pool, write_pool lists
  * @cdev: USB composite device struct
  * @ch: USB diag channel
@@ -232,8 +233,8 @@ static void diag_write_complete(struct usb_ep *ep,
 			d_req->actual = req->actual;
 			d_req->status = req->status;
 			/* Queue zero length packet */
-			if (!usb_ep_queue(ctxt->in, req, GFP_ATOMIC))
-				return;
+			usb_ep_queue(ctxt->in, req, GFP_ATOMIC);
+			return;
 		}
 	}
 
@@ -360,6 +361,28 @@ static void free_reqs(struct diag_context *ctxt)
 }
 
 /**
+ * usb_diag_free_req() - Free USB requests
+ * @ch: Channel handler
+ *
+ * This function free read and write USB requests for the interface
+ * associated with this channel.
+ *
+ */
+void usb_diag_free_req(struct usb_diag_ch *ch)
+{
+	struct diag_context *ctxt = ch->priv_usb;
+	unsigned long flags;
+
+	if (ctxt) {
+		spin_lock_irqsave(&ctxt->lock, flags);
+		free_reqs(ctxt);
+		spin_unlock_irqrestore(&ctxt->lock, flags);
+	}
+
+}
+EXPORT_SYMBOL(usb_diag_free_req);
+
+/**
  * usb_diag_alloc_req() - Allocate USB requests
  * @ch: Channel handler
  * @n_write: Number of requests for Tx
@@ -387,7 +410,6 @@ int usb_diag_alloc_req(struct usb_diag_ch *ch, int n_write, int n_read)
 		req = usb_ep_alloc_request(ctxt->in, GFP_ATOMIC);
 		if (!req)
 			goto fail;
-		kmemleak_not_leak(req);
 		req->complete = diag_write_complete;
 		list_add_tail(&req->list, &ctxt->write_pool);
 	}
@@ -396,7 +418,6 @@ int usb_diag_alloc_req(struct usb_diag_ch *ch, int n_write, int n_read)
 		req = usb_ep_alloc_request(ctxt->out, GFP_ATOMIC);
 		if (!req)
 			goto fail;
-		kmemleak_not_leak(req);
 		req->complete = diag_read_complete;
 		list_add_tail(&req->list, &ctxt->read_pool);
 	}
@@ -428,7 +449,6 @@ int usb_diag_read(struct usb_diag_ch *ch, struct diag_request *d_req)
 	struct diag_context *ctxt = ch->priv_usb;
 	unsigned long flags;
 	struct usb_request *req;
-	struct usb_ep *out;
 	static DEFINE_RATELIMIT_STATE(rl, 10*HZ, 1);
 
 	if (!ctxt)
@@ -436,12 +456,10 @@ int usb_diag_read(struct usb_diag_ch *ch, struct diag_request *d_req)
 
 	spin_lock_irqsave(&ctxt->lock, flags);
 
-	if (!ctxt->configured || !ctxt->out) {
+	if (!ctxt->configured) {
 		spin_unlock_irqrestore(&ctxt->lock, flags);
 		return -EIO;
 	}
-
-	out = ctxt->out;
 
 	if (list_empty(&ctxt->read_pool)) {
 		spin_unlock_irqrestore(&ctxt->lock, flags);
@@ -456,14 +474,7 @@ int usb_diag_read(struct usb_diag_ch *ch, struct diag_request *d_req)
 	req->buf = d_req->buf;
 	req->length = d_req->length;
 	req->context = d_req;
-
-	/* make sure context is still valid after releasing lock */
-	if (ctxt != ch->priv_usb) {
-		usb_ep_free_request(out, req);
-		return -EIO;
-	}
-
-	if (usb_ep_queue(out, req, GFP_ATOMIC)) {
+	if (usb_ep_queue(ctxt->out, req, GFP_ATOMIC)) {
 		/* If error add the link to linked list again*/
 		spin_lock_irqsave(&ctxt->lock, flags);
 		list_add_tail(&req->list, &ctxt->read_pool);
@@ -497,7 +508,6 @@ int usb_diag_write(struct usb_diag_ch *ch, struct diag_request *d_req)
 	struct diag_context *ctxt = ch->priv_usb;
 	unsigned long flags;
 	struct usb_request *req = NULL;
-	struct usb_ep *in;
 	static DEFINE_RATELIMIT_STATE(rl, 10*HZ, 1);
 
 	if (!ctxt)
@@ -505,12 +515,10 @@ int usb_diag_write(struct usb_diag_ch *ch, struct diag_request *d_req)
 
 	spin_lock_irqsave(&ctxt->lock, flags);
 
-	if (!ctxt->configured || !ctxt->in) {
+	if (!ctxt->configured) {
 		spin_unlock_irqrestore(&ctxt->lock, flags);
 		return -EIO;
 	}
-
-	in = ctxt->in;
 
 	if (list_empty(&ctxt->write_pool)) {
 		spin_unlock_irqrestore(&ctxt->lock, flags);
@@ -525,14 +533,7 @@ int usb_diag_write(struct usb_diag_ch *ch, struct diag_request *d_req)
 	req->buf = d_req->buf;
 	req->length = d_req->length;
 	req->context = d_req;
-
-	/* make sure context is still valid after releasing lock */
-	if (ctxt != ch->priv_usb) {
-		usb_ep_free_request(in, req);
-		return -EIO;
-	}
-
-	if (usb_ep_queue(in, req, GFP_ATOMIC)) {
+	if (usb_ep_queue(ctxt->in, req, GFP_ATOMIC)) {
 		/* If error add the link to linked list again*/
 		spin_lock_irqsave(&ctxt->lock, flags);
 		list_add_tail(&req->list, &ctxt->write_pool);
@@ -609,7 +610,7 @@ static int diag_function_set_alt(struct usb_function *f,
 	rc = usb_ep_enable(dev->out);
 	if (rc) {
 		ERROR(dev->cdev, "can't enable %s, result %d\n",
-						dev->out->name, rc);
+				dev->out->name, rc);
 		usb_ep_disable(dev->in);
 		return rc;
 	}
@@ -725,7 +726,7 @@ fail:
 }
 
 int diag_function_add(struct usb_configuration *c, const char *name,
-			int (*update_pid)(uint32_t, const char *))
+		int (*update_pid)(uint32_t, const char *))
 {
 	struct diag_context *dev;
 	struct usb_diag_ch *_ch;
@@ -781,6 +782,7 @@ int diag_function_add(struct usb_configuration *c, const char *name,
 	return ret;
 }
 
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 #if defined(CONFIG_DEBUG_FS)
 static char debug_buffer[PAGE_SIZE];
 
@@ -843,28 +845,17 @@ static const struct file_operations debug_fdiag_ops = {
 struct dentry *dent_diag;
 static void fdiag_debugfs_init(void)
 {
-	struct dentry *dent_diag_status;
 	dent_diag = debugfs_create_dir("usb_diag", 0);
-	if (!dent_diag || IS_ERR(dent_diag))
+	if (IS_ERR(dent_diag))
 		return;
 
-	dent_diag_status = debugfs_create_file("status", 0444, dent_diag, 0,
-			&debug_fdiag_ops);
-
-	if (!dent_diag_status || IS_ERR(dent_diag_status)) {
-		debugfs_remove(dent_diag);
-		dent_diag = NULL;
-		return;
-	}
-}
-
-static void fdiag_debugfs_remove(void)
-{
-	debugfs_remove_recursive(dent_diag);
+	debugfs_create_file("status", 0444, dent_diag, 0, &debug_fdiag_ops);
 }
 #else
-static inline void fdiag_debugfs_init(void) {}
-static inline void fdiag_debugfs_remove(void) {}
+static void fdiag_debugfs_init(void)
+{
+	return;
+}
 #endif
 
 static void diag_cleanup(void)
@@ -873,7 +864,7 @@ static void diag_cleanup(void)
 	struct usb_diag_ch *_ch;
 	unsigned long flags;
 
-	fdiag_debugfs_remove();
+	debugfs_remove_recursive(dent_diag);
 
 	list_for_each_safe(act, tmp, &usb_diag_ch_list) {
 		_ch = list_entry(act, struct usb_diag_ch, list);
@@ -896,3 +887,4 @@ static int diag_setup(void)
 
 	return 0;
 }
+#endif

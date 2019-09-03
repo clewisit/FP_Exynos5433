@@ -30,8 +30,8 @@
  */
 /*#define USB_DEBUG
  *#define USB_MORE_DEBUG
- *#define USB_DEBUG_ESS
  */
+#define USB_DEBUG_ESS
 
 #ifdef USB_DEBUG
 #  ifdef USB_MORE_DEBUG
@@ -61,7 +61,6 @@
 #define MULTI_FUNCTION_1 "mtp"
 #define MULTI_FUNCTION_2 "acm0"
 #define MULTI_EXCEPTION_FUNCTION "adb"
-#define MULTI_EXCEPTION_FUNCTION_F_FS "Function FS Gadget"
 
 #define MAC_REQUEST	0
 #define OTHER_REQUEST	1
@@ -127,14 +126,6 @@ int change_conf(struct usb_function *f,
  */
 void set_interface_count(struct usb_configuration *config,
 	struct usb_config_descriptor *c);
-
-/* Description  : Set config mode
- *		  This mode will be used for deciding other interface.
- * Parameter    : u16 w_length
- *	  - 4 means MAC request.
- *	  - Windows and Linux PC always request 9 or maxpconfig size.
- */
-void set_config_mode(u16 w_length);
 
 /* Description  : Set string mode
  *		  This mode will be used for deciding other interface.

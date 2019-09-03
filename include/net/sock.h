@@ -46,7 +46,6 @@
  *    Add codes to share UID/PID information
  *
  */
- 
 
 #ifndef _SOCK_H
 #define _SOCK_H

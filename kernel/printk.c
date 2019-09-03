@@ -58,6 +58,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/printk.h>
 
+#ifdef        CONFIG_DEBUG_LL
+extern void printascii(char *);
+#endif
+
 /* printk's without a loglevel use this.. */
 #define DEFAULT_MESSAGE_LOGLEVEL CONFIG_DEFAULT_MESSAGE_LOGLEVEL
 
@@ -318,12 +322,94 @@ static u32 log_next(u32 idx)
 	return idx + msg->len;
 }
 
+#ifdef CONFIG_EXYNOS_SNAPSHOT
+static void (*func_hook_logbuf)(const char *buf, u64 ts_nsec, size_t size);
+void register_hook_logbuf(void (*func)(const char *buf, u64 ts_sec, size_t size))
+{
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&logbuf_lock, flags);
+	/*
+	 * In register hooking function,  we should check messages already
+	 * printed on log_buf. If so, they will be copyied to backup
+	 * exynos log buffer
+	 * */
+	if (log_first_seq != log_next_seq) {
+		unsigned int step_seq, step_idx, start, end;
+		struct log *msg;
+		start = log_first_seq;
+		end = log_next_seq;
+		step_idx = log_first_idx;
+		for (step_seq = start; step_seq < end; step_seq++) {
+			msg = (struct log *)(log_buf + step_idx);
+			func(log_text(msg), msg->ts_nsec,
+				msg->text_len + msg->dict_len);
+			step_idx = log_next(step_idx);
+		}
+	}
+	func_hook_logbuf = func;
+	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
+}
+EXPORT_SYMBOL(register_hook_logbuf);
+#endif
+
 #if defined(CONFIG_PRINTK_PROCESS)
 static bool printk_process = 1;
 #else
 static bool printk_process = 0;
 #endif
 module_param_named(process, printk_process, bool, S_IRUGO | S_IWUSR);
+
+#if defined(CONFIG_SEC_DEBUG)
+void disable_printk_process(void)
+{
+	printk_process = 0;
+}
+#endif
+
+#ifdef CONFIG_SEC_LOG
+static void (*log_text_hook)(char *text, size_t size);
+static char *seclog_buf;
+static unsigned *seclog_ptr;
+static size_t seclog_size;
+static char sec_text[LOG_LINE_MAX + PREFIX_MAX];
+static size_t msg_print_text(const struct log *msg, enum log_flags prev,
+			     bool syslog, char *buf, size_t size);
+
+void register_log_text_hook(void (*f)(char *text, size_t size), char * buf,
+	unsigned *position, size_t bufsize)
+{
+	unsigned long flags;
+	u64 seq = 0;
+	u32 idx = 0;
+	struct log *msg;
+	size_t size;
+
+	raw_spin_lock_irqsave(&logbuf_lock, flags);
+	if (buf && bufsize) {
+		seclog_buf = buf;
+		seclog_ptr = position;
+		seclog_size = bufsize;
+		log_text_hook = f;
+
+		if (log_text_hook) {
+			seq = log_first_seq;
+			idx = log_first_idx;
+			while (seq < log_next_seq) {
+				msg = log_from_idx(idx);
+				size = msg_print_text(msg, msg->flags, true, sec_text,
+						   LOG_LINE_MAX + PREFIX_MAX);
+				log_text_hook(sec_text, size);
+
+				idx = log_next(idx);
+				seq++;
+			}
+		}
+	}
+	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
+}
+EXPORT_SYMBOL(register_log_text_hook);
+#endif
 
 /* insert record into the buffer, discard old ones, update heads */
 static void log_store(int facility, int level,
@@ -387,11 +473,20 @@ static void log_store(int facility, int level,
 		msg->cpu = smp_processor_id();
 		msg->in_interrupt = in_interrupt()? 1 : 0;
 	}
+#ifdef CONFIG_SEC_LOG
+	if (log_text_hook) {
+		size = msg_print_text(msg, msg->flags, true,
+					sec_text, LOG_LINE_MAX + PREFIX_MAX);
 
-#ifdef CONFIG_SEC_LOG_LAST_KMSG
-	/* Save the log here,using "msg".*/
-	sec_log_add(msg);
+		log_text_hook(sec_text, size);
+	}
 #endif
+#ifdef CONFIG_EXYNOS_SNAPSHOT
+	if (func_hook_logbuf)
+		func_hook_logbuf(log_text(msg),
+			msg->ts_nsec, text_len + dict_len);
+#endif
+
 	/* insert message */
 	log_next_idx += msg->len;
 	log_next_seq++;
@@ -894,6 +989,13 @@ static inline void boot_delay_msec(int level)
 {
 }
 #endif
+
+#if defined(CONFIG_PRINTK_CORE_NUM)
+static bool printk_core_num = 1;
+#else
+static bool printk_core_num = 0;
+#endif
+module_param_named(core_num, printk_core_num, bool, S_IRUGO | S_IWUSR);
 
 #if defined(CONFIG_PRINTK_TIME)
 static bool printk_time = 1;
@@ -1514,7 +1616,6 @@ static bool cont_add(int facility, int level, const char *text, size_t len)
 
 	return true;
 }
-
 static size_t cont_print_text(char *text, size_t size)
 {
 	size_t textlen = 0;
@@ -1546,6 +1647,7 @@ static size_t cont_print_text(char *text, size_t size)
 	return textlen;
 }
 
+
 asmlinkage int vprintk_emit(int facility, int level,
 			    const char *dict, size_t dictlen,
 			    const char *fmt, va_list args)
@@ -1558,6 +1660,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	unsigned long flags;
 	int this_cpu;
 	int printed_len = 0;
+	static bool prev_new_line = true;
 
 	boot_delay_msec(level);
 	printk_delay();
@@ -1603,12 +1706,33 @@ asmlinkage int vprintk_emit(int facility, int level,
 	 * The printf needs to come first; we need the syslog
 	 * prefix which might be passed-in as a parameter.
 	 */
-	text_len = vscnprintf(text, sizeof(textbuf), fmt, args);
+	if (printk_core_num && prev_new_line) {
+		static char tempbuf[LOG_LINE_MAX];
+		char *temp = tempbuf;
+
+		vscnprintf(temp, sizeof(tempbuf), fmt, args);
+		if (printk_get_level(tempbuf))
+			text_len = snprintf(text, sizeof(textbuf),
+					    "%c%c[c%d] %s", tempbuf[0],
+					    tempbuf[1], this_cpu, &tempbuf[2]);
+		else
+			text_len = snprintf(text, sizeof(textbuf), "[c%d] %s",
+					    this_cpu, &tempbuf[0]);
+	} else {
+		text_len = vscnprintf(text, sizeof(textbuf), fmt, args);
+	}
+
+#ifdef	CONFIG_DEBUG_LL
+	printascii(text);
+#endif
 
 	/* mark and strip a trailing newline */
 	if (text_len && text[text_len-1] == '\n') {
 		text_len--;
 		lflags |= LOG_NEWLINE;
+		prev_new_line = true;
+	} else {
+		prev_new_line = false;
 	}
 
 	/* strip kernel syslog prefix and extract log level or control flags */

@@ -27,9 +27,6 @@ enum {
 	 PEER_CRASH,
 };
 
-/* wait one second more than MDM2AP status check */
-#define MDM_BOOT_TIMEOUT (121*HZ)
-
 struct mdm_drv {
 	unsigned mode;
 	struct esoc_eng cmd_eng;
@@ -50,9 +47,10 @@ static int esoc_msm_restart_handler(struct notifier_block *nb,
 					esoc_restart);
 	struct esoc_clink *esoc_clink = mdm_drv->esoc_clink;
 	const struct esoc_clink_ops const *clink_ops = esoc_clink->clink_ops;
-
-	dev_dbg(&esoc_clink->dev, "Notifying esoc of cold reboot\n");
-	clink_ops->notify(ESOC_PRIMARY_REBOOT, esoc_clink);
+	if (action == SYS_RESTART) {
+		dev_dbg(&esoc_clink->dev, "Notifying esoc of cold reboot\n");
+		clink_ops->notify(ESOC_PRIMARY_REBOOT, esoc_clink);
+	}
 	return NOTIFY_OK;
 }
 static void mdm_handle_clink_evt(enum esoc_evt evt,
@@ -113,8 +111,7 @@ static void mdm_crash_shutdown(const struct subsys_desc *mdm_subsys)
 	clink_ops->notify(ESOC_PRIMARY_CRASH, esoc_clink);
 }
 
-static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys,
-							bool force_stop)
+static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys)
 {
 	int ret;
 	struct esoc_clink *esoc_clink =
@@ -144,7 +141,6 @@ static int mdm_subsys_shutdown(const struct subsys_desc *crashed_subsys,
 static int mdm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 {
 	int ret;
-	int t;
 	struct esoc_clink *esoc_clink =
 				container_of(crashed_subsys, struct esoc_clink,
 								subsys);
@@ -153,12 +149,7 @@ static int mdm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 
 	if (!esoc_req_eng_enabled(esoc_clink)) {
 		dev_dbg(&esoc_clink->dev, "Wait for req eng registration\n");
-		t = wait_for_completion_timeout(&mdm_drv->req_eng_wait,
-		                                MDM_BOOT_TIMEOUT);
-		if (!t) {
-			dev_err(&esoc_clink->dev, "Req eng timeout\n");
-			return -EIO;
-		}
+		wait_for_completion(&mdm_drv->req_eng_wait);
 	}
 	if (mdm_drv->mode == PWR_OFF) {
 		ret = clink_ops->cmd_exe(ESOC_PWR_ON, esoc_clink);
@@ -179,11 +170,13 @@ static int mdm_subsys_powerup(const struct subsys_desc *crashed_subsys)
 			return ret;
 		}
 	}
-	t = wait_for_completion_timeout(&mdm_drv->boot_done, MDM_BOOT_TIMEOUT);
-	if (!t || mdm_drv->boot_fail) {
+#if 0
+	wait_for_completion(&mdm_drv->boot_done);
+	if (mdm_drv->boot_fail) {
 		dev_err(&esoc_clink->dev, "booting failed\n");
 		return -EIO;
 	}
+#endif
 	return 0;
 }
 
@@ -196,6 +189,7 @@ static int mdm_subsys_ramdumps(int want_dumps,
 								subsys);
 	const struct esoc_clink_ops const *clink_ops = esoc_clink->clink_ops;
 
+	pr_info("[MIF] %s, 1\n", __func__);
 	if (want_dumps) {
 		ret = clink_ops->cmd_exe(ESOC_EXE_DEBUG, esoc_clink);
 		if (ret) {
@@ -203,6 +197,7 @@ static int mdm_subsys_ramdumps(int want_dumps,
 			return ret;
 		}
 	}
+	pr_info("[MIF] %s, 2\n", __func__);
 	return 0;
 }
 
@@ -221,6 +216,7 @@ int esoc_ssr_probe(struct esoc_clink *esoc_clink)
 	struct mdm_drv *mdm_drv;
 	struct esoc_eng *esoc_eng;
 
+	pr_info("[MIF] %s\n", __func__);
 	mdm_drv = devm_kzalloc(&esoc_clink->dev, sizeof(*mdm_drv), GFP_KERNEL);
 	if (IS_ERR(mdm_drv))
 		return PTR_ERR(mdm_drv);
@@ -250,6 +246,7 @@ int esoc_ssr_probe(struct esoc_clink *esoc_clink)
 	ret = register_reboot_notifier(&mdm_drv->esoc_restart);
 	if (ret)
 		dev_err(&esoc_clink->dev, "register for reboot failed\n");
+
 	return 0;
 queue_err:
 	esoc_clink_unregister_ssr(esoc_clink);
@@ -280,6 +277,7 @@ static struct esoc_drv esoc_ssr_drv = {
 
 int __init esoc_ssr_init(void)
 {
+	pr_err("[MIF] %s", __func__);
 #if defined(CONFIG_MACH_TRLTE_LDU) || defined(CONFIG_MACH_TBLTE_LDU)
 	pr_err("%s LDU doesn't have modem, skip esoc drv register", __func__);
 	return 0;

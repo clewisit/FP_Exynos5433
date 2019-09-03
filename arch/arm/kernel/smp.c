@@ -49,6 +49,8 @@
 #include <mach/sec_debug.h>
 #endif
 
+#include <mach/exynos-ss.h>
+#include <linux/sec_debug.h>
 /*
  * as from 2.5, kernels no longer have an init_tasks structure
  * so we need some other way of telling a new secondary core
@@ -586,7 +588,7 @@ static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 		dump_stack();
 #ifdef CONFIG_SEC_DEBUG
 		sec_debug_dump_stack();
-#endif		
+#endif
 		raw_spin_unlock(&stop_lock);
 	}
 
@@ -595,8 +597,11 @@ static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 	local_fiq_disable();
 	local_irq_disable();
 
-	flush_cache_all();
+	exynos_ss_save_context(regs);
 
+#ifdef CONFIG_SEC_DEBUG
+	local_flush_tlb_all();
+#endif
 	while (1)
 		cpu_relax();
 }
@@ -626,8 +631,7 @@ void smp_send_all_cpu_backtrace(void)
 	dump_stack();
 
 	pr_info("\nsending IPI to all other CPUs:\n");
-	if (!cpus_empty(backtrace_mask))
-		smp_cross_call(&backtrace_mask, IPI_CPU_BACKTRACE);
+	smp_cross_call(&backtrace_mask, IPI_CPU_BACKTRACE);
 
 	/* Wait for up to 10 seconds for all other CPUs to do the backtrace */
 	for (i = 0; i < 10 * 1000; i++) {
@@ -669,6 +673,9 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 
 	if (ipinr < NR_IPI)
 		__inc_irq_stat(cpu, ipi_irqs[ipinr]);
+
+	exynos_ss_irq(ipinr, do_IPI, irqs_disabled(), ESS_FLAG_IN);
+	sec_debug_irq_log(ipinr, do_IPI, 1);
 
 	switch (ipinr) {
 	case IPI_WAKEUP:
@@ -713,6 +720,9 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		       cpu, ipinr);
 		break;
 	}
+	exynos_ss_irq(ipinr, do_IPI, irqs_disabled(), ESS_FLAG_OUT);
+	sec_debug_irq_log(ipinr, (void *)do_IPI, 2);
+
 	set_irq_regs(old_regs);
 }
 
@@ -748,6 +758,52 @@ int setup_profiling_timer(unsigned int multiplier)
 {
 	return -EINVAL;
 }
+
+static void flush_all_cpu_cache(void *info)
+{
+	flush_cache_louis();
+}
+
+#ifdef CONFIG_SCHED_HMP
+
+#include <asm/cputype.h>
+
+extern struct cpumask hmp_slow_cpu_mask;
+extern struct cpumask hmp_fast_cpu_mask;
+
+static void flush_all_cluster_cache(void *info)
+{
+	flush_cache_all();
+}
+
+void flush_all_cpu_caches(void)
+{
+        unsigned int cpu, cluster, target_cpu;
+
+	preempt_disable();
+	cpu = smp_processor_id();
+	cluster = MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1);
+
+	if (!cluster)
+		target_cpu = first_cpu(hmp_slow_cpu_mask);
+	else
+		target_cpu = first_cpu(hmp_fast_cpu_mask);
+
+	smp_call_function(flush_all_cpu_cache, NULL, 1);
+	smp_call_function_single(target_cpu, flush_all_cluster_cache, NULL, 1);
+	flush_cache_all();
+
+	preempt_enable();
+}
+#else
+void flush_all_cpu_caches(void)
+{
+	preempt_disable();
+	smp_call_function(flush_all_cpu_cache, NULL, 1);
+	flush_cache_all();
+	preempt_enable();
+}
+#endif
 
 #ifdef CONFIG_CPU_FREQ
 

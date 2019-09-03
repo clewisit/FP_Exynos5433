@@ -44,7 +44,7 @@ enum bus_id {
 
 static enum bus_id str_to_busid(const char *name)
 {
-	if (!strncasecmp("msm_hsic_host", name, BUSNAME_LEN))
+	if (!strncasecmp("15510000.usb", name, BUSNAME_LEN))
 		return BUS_HSIC;
 	if (!strncasecmp("msm_ehci_host.0", name, BUSNAME_LEN))
 		return BUS_USB;
@@ -117,7 +117,7 @@ struct ks_bridge {
 struct ks_bridge *__ksb[NO_BRIDGE_INSTANCES];
 
 /* by default debugging is enabled */
-static unsigned int enable_dbg = 0;
+static unsigned int enable_dbg = 1;
 module_param(enable_dbg, uint, S_IRUGO | S_IWUSR);
 
 static void
@@ -251,9 +251,11 @@ read_start:
 		test_bit(USB_DEV_CONNECTED, &ksb->flags))
 		dev_err(ksb->device, "%s, count:%d space:%d copied:%d",
 				__func__, count, space, copied);
+#if 0
 	else
 		dev_dbg(ksb->device, "count:%d space:%d copied:%d",
 				count, space, copied);
+#endif
 
 	return copied;
 }
@@ -264,7 +266,7 @@ static void ksb_tx_cb(struct urb *urb)
 	struct ks_bridge *ksb = pkt->ctxt;
 
 	dbg_log_event(ksb, "C TX_URB", urb->status, 0);
-	dev_dbg(&ksb->udev->dev, "status:%d", urb->status);
+	/* dev_dbg(&ksb->udev->dev, "status:%d", urb->status); */
 
 	if (test_bit(USB_DEV_CONNECTED, &ksb->flags))
 		usb_autopm_put_interface_async(ksb->ifc);
@@ -550,8 +552,10 @@ static void ksb_rx_cb(struct urb *urb)
 
 	dbg_log_event(ksb, "C RX_URB", urb->status, urb->actual_length);
 
+#if 0
 	dev_dbg(&ksb->udev->dev, "status:%d actual:%d", urb->status,
 			urb->actual_length);
+#endif
 
 	/*non zero len of data received while unlinking urb*/
 	if (urb->status == -ENOENT && (urb->actual_length > 0)) {
@@ -815,7 +819,7 @@ ksb_usb_probe(struct usb_interface *ifc, const struct usb_device_id *id)
 		usb_enable_autosuspend(ksb->udev);
 	}
 
-	dev_dbg(&udev->dev, "usb dev connected");
+	dev_info(&udev->dev, "usb dev connected");
 
 	return 0;
 

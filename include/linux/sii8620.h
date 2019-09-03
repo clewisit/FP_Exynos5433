@@ -16,8 +16,6 @@
 #define _SII8620_H_
 
 #ifdef __KERNEL__
-#include <linux/mdss_hdmi_mhl.h>
-#include <soc/qcom/scm.h>
 /* Different MHL Dongle/bridge which are used; may be
  * these enums are Samsung-Specific,but they do represent various
  * versions of dongles.
@@ -35,6 +33,13 @@ enum connector_type {
 	CONN_30_PIN,    /* Galaxy Tabs */
 };
 
+enum mhl_attached_type {
+	MHL_UNHANDLED = 0,
+	MHL_MUIC_DEV,
+	MHL_SMART_DOCK,
+	MHL_MM_DOCK,
+};
+
 enum mhl_sleep_state {
 	MHL_SUSPEND_STATE = 0,
 	MHL_RESUME_STATE = 1,
@@ -49,15 +54,6 @@ enum mhl_gpio_type {
 
 #define MAX_ELEC_TUNING_CNT 150
 
-#define _SCM_SVC_OEM    249
-#define _SCM_OEM_CMD    1
-__packed struct hdcp_auth_status {
-	uint32_t a;
-	void *b;
-	void *c;
-	uint32_t d;
-};
-
 struct sii8620_platform_data {
 /* Called to setup board-specific power operations */
 	void (*power)(bool on);
@@ -71,6 +67,7 @@ struct sii8620_platform_data {
 	struct i2c_client *disc_client;
 	struct i2c_client *tpi_client;
 	struct i2c_client *cbus_client;
+	struct clk *mhl_clk;
 	/* to handle board-specific connector info & callback */
 	enum dongle_type dongle;
 	enum connector_type conn;
@@ -79,9 +76,7 @@ struct sii8620_platform_data {
 	u8 power_state;
 	u32 swing_level_v2;
 	u32 swing_level_v3;
-	u32 coc_ctl1;
-	u32 pre_emphasis_set;
-	u32 pre_emphasis_value;
+	u32 ref_current;
 #ifdef CONFIG_TESTONLY_SYSFS_SW_REG_TUNING
 	u32 m_offset[MAX_ELEC_TUNING_CNT];
 	u32 m_page[MAX_ELEC_TUNING_CNT];
@@ -98,15 +93,12 @@ struct sii8620_platform_data {
 	void (*hw_reset)(void);
 	void (*gpio_cfg)(enum mhl_sleep_state sleep_status);
 	void (*charger_mhl_cb)(bool on, int mhl_charger);
-	bool (*vbus_present)(void);
+	int (*muic_otg_set)(int on);
 	int charging_type;
 	/* void (*vbus_present)(bool on); */
 #ifdef CONFIG_SAMSUNG_MHL_UNPOWERED
 	int (*get_vbus_status)(void);
 	void (*sii9234_otg_control)(bool onoff);
-#endif
-#if defined(CONFIG_SEC_MHL_AP_HDCP_PART1)
-	bool ap_hdcp_success;
 #endif
 #if defined(CONFIG_OF)
 	int gpio_mhl_scl;
@@ -116,38 +108,18 @@ struct sii8620_platform_data {
 	int gpio_mhl_en;
 	int gpio_mhl_reset;
 	int gpio_mhl_wakeup;
-	int gpio_mhl_spi_dvld;
 	int gpio_ta_int;
-	struct regulator *vcc_1p0v;
-	struct regulator *vcc_1p8v;
-	char *vcc_1p0v_name;
-	char *vcc_1p8v_name;
-//	bool gpio_barcode_emul;
 	enum mhl_gpio_type gpio_mhl_reset_type;
 	enum mhl_gpio_type gpio_mhl_en_type;
-	struct platform_device *hdmi_pdev;
-	struct msm_hdmi_mhl_ops *hdmi_mhl_ops;
 	char *charger_name;
-#ifdef CONFIG_EXTCON
-	bool is_smartdock;
-#ifdef CONFIG_MUIC_SUPPORT_MULTIMEDIA_DOCK
-	bool is_multimediadock;
 #endif
-	struct delayed_work bootup_work;
-	bool bootup_complete;
-#endif
-#if defined(CONFIG_MACH_TRLTE_LDU) || defined(CONFIG_MACH_TBLTE_LDU)
-	bool is_hmt;
-#endif
-	struct hdcp_auth_status monitor_cmd;
+#ifdef CONFIG_SII8620_CHECK_MONITOR
+	uint32_t monitor_cmd;
 	void (*link_monitor)(u8 cmd_value);
 #endif
 };
-extern unsigned int system_rev;
+extern int system_rev;
 int acc_register_notifier(struct notifier_block *nb);
-#if defined(CONFIG_MACH_TRLTE_LDU) || defined(CONFIG_MACH_TBLTE_LDU)
-bool sii8620_hmt_connect(void);
-#endif
 #endif /* __SII8620_H__ */
 
 #endif
