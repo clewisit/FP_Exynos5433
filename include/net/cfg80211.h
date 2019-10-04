@@ -63,8 +63,6 @@ struct wiphy;
 
 #define TDLS_MGMT_VERSION2 1
 #define CFG80211_BSSID_HINT_BACKPORT 1
-#define CFG80211_SCAN_RANDOM_MAC_ADDR 1
-
 /*
  * wireless hardware capability structures
  */
@@ -116,6 +114,10 @@ enum ieee80211_band {
  *	restrictions.
  * @IEEE80211_CHAN_INDOOR_ONLY: see %NL80211_FREQUENCY_ATTR_INDOOR_ONLY
  * @IEEE80211_CHAN_GO_CONCURRENT: see %NL80211_FREQUENCY_ATTR_GO_CONCURRENT
+ * @IEEE80211_CHAN_NO_20MHZ: 20 MHz bandwidth is not permitted
+ *	on this channel.
+ * @IEEE80211_CHAN_NO_10MHZ: 10 MHz bandwidth is not permitted
+ *	on this channel.
  *
  */
 enum ieee80211_channel_flags {
@@ -130,6 +132,8 @@ enum ieee80211_channel_flags {
 	IEEE80211_CHAN_NO_160MHZ	= 1<<8,
 	IEEE80211_CHAN_INDOOR_ONLY	= 1<<9,
 	IEEE80211_CHAN_GO_CONCURRENT	= 1<<10,
+	IEEE80211_CHAN_NO_20MHZ		= 1<<11,
+	IEEE80211_CHAN_NO_10MHZ		= 1<<12,
 };
 
 #define IEEE80211_CHAN_NO_HT40 \
@@ -1332,10 +1336,6 @@ struct cfg80211_match_set {
  * @channels: channels to scan
  * @min_rssi_thold: for drivers only supporting a single threshold, this
  *	contains the minimum over all matchsets
- * @mac_addr: MAC address used with randomisation
- * @mac_addr_mask: MAC address mask used with randomisation, bits that
- *	are 0 in the mask should be randomised, bits that are 1 should
- *	be taken from the @mac_addr
  */
 struct cfg80211_sched_scan_request {
 	struct cfg80211_ssid *ssids;
@@ -1349,9 +1349,6 @@ struct cfg80211_sched_scan_request {
 	int n_match_sets;
 	s32 min_rssi_thold;
 	s32 rssi_thold; /* just for backward compatible */
-
-	u8 mac_addr[ETH_ALEN] __aligned(2);
-	u8 mac_addr_mask[ETH_ALEN] __aligned(2);
 
 	/* internal */
 	struct wiphy *wiphy;
@@ -1975,6 +1972,8 @@ struct cfg80211_qos_map {
  *	the driver, and will be valid until passed to cfg80211_scan_done().
  *	For scan results, call cfg80211_inform_bss(); you can call this outside
  *	the scan/scan_done bracket too.
+ * @abort_scan: Tell the driver to abort an ongoing scan. The driver shall
+ *	indicate the status of the scan through cfg80211_scan_done().
  *
  * @auth: Request to authenticate with the specified peer
  * @assoc: Request to (re)associate with the specified peer
@@ -2204,6 +2203,7 @@ struct cfg80211_ops {
 
 	int	(*scan)(struct wiphy *wiphy,
 			struct cfg80211_scan_request *request);
+	void	(*abort_scan)(struct wiphy *wiphy, struct wireless_dev *wdev);
 
 	int	(*auth)(struct wiphy *wiphy, struct net_device *dev,
 			struct cfg80211_auth_request *req);
@@ -2615,7 +2615,7 @@ struct wiphy_vendor_command {
 	struct nl80211_vendor_cmd_info info;
 	u32 flags;
 	int (*doit)(struct wiphy *wiphy, struct wireless_dev *wdev,
-		    void *data, int data_len);
+		    const void *data, int data_len);
 };
 
 /**
@@ -2731,6 +2731,11 @@ struct wiphy_vendor_command {
  * @n_vendor_commands: number of vendor commands
  * @vendor_events: array of vendor events supported by the hardware
  * @n_vendor_events: number of vendor events
+ *
+ * @max_ap_assoc_sta: maximum number of associated stations supported in AP mode
+ *	(including P2P GO) or 0 to indicate no such limit is advertised. The
+ *	driver is allowed to advertise a theoretical limit that it can reach in
+ *	some cases, but may not always reach.
  */
 struct wiphy {
 	/* assign these fields before you register the wiphy */
@@ -2844,6 +2849,8 @@ struct wiphy {
 	const struct wiphy_vendor_command *vendor_commands;
 	const struct nl80211_vendor_cmd_info *vendor_events;
 	int n_vendor_commands, n_vendor_events;
+
+	u16 max_ap_assoc_sta;
 
 	char priv[0] __aligned(NETDEV_ALIGN);
 };
@@ -3842,8 +3849,8 @@ void __cfg80211_send_event_skb(struct sk_buff *skb, gfp_t gfp);
 static inline struct sk_buff *
 cfg80211_vendor_cmd_alloc_reply_skb(struct wiphy *wiphy, int approxlen)
 {
-	return __cfg80211_alloc_reply_skb(wiphy, NL80211_CMD_TESTMODE,
-					  NL80211_ATTR_TESTDATA, approxlen);
+	return __cfg80211_alloc_reply_skb(wiphy, NL80211_CMD_VENDOR,
+					  NL80211_ATTR_VENDOR_DATA, approxlen);
 }
 
 /**
@@ -4489,7 +4496,6 @@ void cfg80211_crit_proto_stopped(struct wireless_dev *wdev, gfp_t gfp);
  * @gfp: context flags
  */
 void cfg80211_ap_stopped(struct net_device *netdev, gfp_t gfp);
-
 /**
  * cfg80211_is_gratuitous_arp_unsolicited_na - packet is grat. ARP/unsol. NA
  * @skb: the input packet, must be an ethernet frame already
@@ -4499,6 +4505,8 @@ void cfg80211_ap_stopped(struct net_device *netdev, gfp_t gfp);
  * a proxy service.
  */
 bool cfg80211_is_gratuitous_arp_unsolicited_na(struct sk_buff *skb);
+
+void cfg80211_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info);
 
 /* Logging, debugging and troubleshooting/diagnostic helpers. */
 

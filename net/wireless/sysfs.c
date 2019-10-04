@@ -90,17 +90,11 @@ static int wiphy_suspend(struct device *dev, pm_message_t state)
 
 	rdev->suspend_at = get_seconds();
 
-	rtnl_lock();
-	if (rdev->wiphy.registered) {
-		if (!rdev->wowlan && !rdev->wiphy.wowlan.flags)
-			cfg80211_leave_all(rdev);
-		if (rdev->ops->suspend)
-			ret = rdev_suspend(rdev, rdev->wowlan);
-		if (ret == 1) {
-			/* Driver refuse to configure wowlan */
-			cfg80211_leave_all(rdev);
-			ret = rdev_suspend(rdev, NULL);
-		}
+	if (rdev->ops->suspend) {
+		rtnl_lock();
+		if (rdev->wiphy.registered)
+			ret = rdev_suspend(rdev);
+		rtnl_unlock();
 	}
 
 	return ret;

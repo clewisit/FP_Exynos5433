@@ -607,6 +607,15 @@
  *	%NL80211_ATTR_IFINDEX is now on %NL80211_ATTR_WIPHY_FREQ and the
  *	attributes determining channel width.
  *
+ * @NL80211_CMD_CH_SWITCH_STARTED_NOTIFY: Notify that a channel switch
+ *	has been started on an interface, regardless of the initiator
+ *	(ie. whether it was requested from a remote device or
+ *	initiated on our own).  It indicates that
+ *	%NL80211_ATTR_IFINDEX will be on %NL80211_ATTR_WIPHY_FREQ
+ *	after %NL80211_ATTR_CH_SWITCH_COUNT TBTT's.  The userspace may
+ *	decide to react to this indication by requesting other
+ *	interfaces to change channel as well.
+ *
  * @NL80211_CMD_START_P2P_DEVICE: Start the given P2P Device, identified by
  *	its %NL80211_ATTR_WDEV identifier. It must have been created with
  *	%NL80211_CMD_NEW_INTERFACE previously. After it has been started, the
@@ -681,6 +690,57 @@
  *	used in the wiphy data as a nested attribute containing descriptions
  *	(&struct nl80211_vendor_cmd_info) of the supported vendor commands.
  *	This may also be sent as an event with the same attributes.
+ *
+ * @NL80211_CMD_SET_QOS_MAP: Set Interworking QoS mapping for IP DSCP values.
+ *	The QoS mapping information is included in %NL80211_ATTR_QOS_MAP. If
+ *	that attribute is not included, QoS mapping is disabled. Since this
+ *	QoS mapping is relevant for IP packets, it is only valid during an
+ *	association. This is cleared on disassociation and AP restart.
+ *
+ * @NL80211_CMD_ADD_TX_TS: Ask the kernel to add a traffic stream for the given
+ *	%NL80211_ATTR_TSID and %NL80211_ATTR_MAC with %NL80211_ATTR_USER_PRIO
+ *	and %NL80211_ATTR_ADMITTED_TIME parameters.
+ *	Note that the action frame handshake with the AP shall be handled by
+ *	userspace via the normal management RX/TX framework, this only sets
+ *	up the TX TS in the driver/device.
+ *	If the admitted time attribute is not added then the request just checks
+ *	if a subsequent setup could be successful, the intent is to use this to
+ *	avoid setting up a session with the AP when local restrictions would
+ *	make that impossible. However, the subsequent "real" setup may still
+ *	fail even if the check was successful.
+ * @NL80211_CMD_DEL_TX_TS: Remove an existing TS with the %NL80211_ATTR_TSID
+ *	and %NL80211_ATTR_MAC parameters. It isn't necessary to call this
+ *	before removing a station entry entirely, or before disassociating
+ *	or similar, cleanup will happen in the driver/device in this case.
+ *
+ * @NL80211_CMD_GET_MPP: Get mesh path attributes for mesh proxy path to
+ *	destination %NL80211_ATTR_MAC on the interface identified by
+ *	%NL80211_ATTR_IFINDEX.
+ *
+ * @NL80211_CMD_JOIN_OCB: Join the OCB network. The center frequency and
+ *	bandwidth of a channel must be given.
+ * @NL80211_CMD_LEAVE_OCB: Leave the OCB network -- no special arguments, the
+ *	network is determined by the network interface.
+ *
+ * @NL80211_CMD_TDLS_CHANNEL_SWITCH: Start channel-switching with a TDLS peer,
+ *	identified by the %NL80211_ATTR_MAC parameter. A target channel is
+ *	provided via %NL80211_ATTR_WIPHY_FREQ and other attributes determining
+ *	channel width/type. The target operating class is given via
+ *	%NL80211_ATTR_OPER_CLASS.
+ *	The driver is responsible for continually initiating channel-switching
+ *	operations and returning to the base channel for communication with the
+ *	AP.
+ * @NL80211_CMD_TDLS_CANCEL_CHANNEL_SWITCH: Stop channel-switching with a TDLS
+ *	peer given by %NL80211_ATTR_MAC. Both peers must be on the base channel
+ *	when this command completes.
+ *
+ * @NL80211_CMD_WIPHY_REG_CHANGE: Similar to %NL80211_CMD_REG_CHANGE, but used
+ *	as an event to indicate changes for devices with wiphy-specific regdom
+ *	management.
+ *
+ * @NL80211_CMD_ABORT_SCAN: Stop an ongoing scan. Returns -ENOENT if a scan is
+ *	not running. The driver indicates the status of the scan through
+ *	cfg80211_scan_done().
  *
  * @NL80211_CMD_MAX: highest used command number
  * @__NL80211_CMD_AFTER_LAST: internal use
@@ -850,6 +910,25 @@ enum nl80211_commands {
 	NL80211_CMD_CHANNEL_SWITCH,
 
 	NL80211_CMD_VENDOR,
+
+	NL80211_CMD_SET_QOS_MAP,
+
+	NL80211_CMD_ADD_TX_TS,
+	NL80211_CMD_DEL_TX_TS,
+
+	NL80211_CMD_GET_MPP,
+
+	NL80211_CMD_JOIN_OCB,
+	NL80211_CMD_LEAVE_OCB,
+
+	NL80211_CMD_CH_SWITCH_STARTED_NOTIFY,
+
+	NL80211_CMD_TDLS_CHANNEL_SWITCH,
+	NL80211_CMD_TDLS_CANCEL_CHANNEL_SWITCH,
+
+	NL80211_CMD_WIPHY_REG_CHANGE,
+
+	NL80211_CMD_ABORT_SCAN,
 
 	/* add new commands above here */
 
@@ -1514,6 +1593,23 @@ enum nl80211_commands {
  * @NL80211_ATTR_VENDOR_EVENTS: used for event list advertising in the wiphy
  *	info, containing a nested array of possible events
  *
+ * @NL80211_ATTR_QOS_MAP: IP DSCP mapping for Interworking QoS mapping. This
+ *	data is in the format defined for the payload of the QoS Map Set element
+ *	in IEEE Std 802.11-2012, 8.4.2.97.
+ *
+ * @NL80211_ATTR_MAC_HINT: MAC address recommendation as initial BSS
+ * @NL80211_ATTR_WIPHY_FREQ_HINT: frequency of the recommended initial BSS
+ *
+ * @NL80211_ATTR_MAX_AP_ASSOC_STA: Device attribute that indicates how many
+ *	associated stations are supported in AP mode (including P2P GO); u32.
+ *	Since drivers may not have a fixed limit on the maximum number (e.g.,
+ *	other concurrent operations may affect this), drivers are allowed to
+ *	advertise values that cannot always be met. In such cases, an attempt
+ *	to add a new station entry with @NL80211_CMD_NEW_STATION may fail.
+ *
+ * @NL80211_ATTR_TDLS_PEER_CAPABILITY: flags for TDLS peer capabilities, u32.
+ *	As specified in the &enum nl80211_tdls_peer_capability.
+ *
  * @NL80211_ATTR_MAX: highest attribute number currently defined
  * @__NL80211_ATTR_AFTER_LAST: internal use
  */
@@ -1814,7 +1910,19 @@ enum nl80211_attrs {
 
 	NL80211_ATTR_PEER_AID,
 
-	/* add attributes here, update the policy in nl80211.c */
+	NL80211_ATTR_COALESCE_RULE,
+
+	NL80211_ATTR_CH_SWITCH_COUNT,
+	NL80211_ATTR_CH_SWITCH_BLOCK_TX,
+	NL80211_ATTR_CSA_IES,
+	NL80211_ATTR_CSA_C_OFF_BEACON,
+	NL80211_ATTR_CSA_C_OFF_PRESP,
+
+	NL80211_ATTR_RXMGMT_FLAGS,
+
+	NL80211_ATTR_STA_SUPPORTED_CHANNELS,
+
+	NL80211_ATTR_STA_SUPPORTED_OPER_CLASSES,
 
 	NL80211_ATTR_HANDLE_DFS,
 
@@ -1828,6 +1936,17 @@ enum nl80211_attrs {
 	NL80211_ATTR_VENDOR_DATA,
 
 	NL80211_ATTR_VENDOR_EVENTS,
+
+	NL80211_ATTR_QOS_MAP,
+
+	NL80211_ATTR_MAC_HINT,
+	NL80211_ATTR_WIPHY_FREQ_HINT,
+
+	NL80211_ATTR_MAX_AP_ASSOC_STA,
+
+	NL80211_ATTR_TDLS_PEER_CAPABILITY,
+
+	/* add attributes here, update the policy in nl80211.c */
 
 	__NL80211_ATTR_AFTER_LAST,
 	NL80211_ATTR_MAX = __NL80211_ATTR_AFTER_LAST - 1
@@ -1873,7 +1992,7 @@ enum nl80211_attrs {
 #define NL80211_HT_CAPABILITY_LEN		26
 #define NL80211_VHT_CAPABILITY_LEN		12
 
-#define NL80211_MAX_NR_CIPHER_SUITES		6
+#define NL80211_MAX_NR_CIPHER_SUITES		5
 #define NL80211_MAX_NR_AKM_SUITES		2
 
 #define NL80211_MIN_REMAIN_ON_CHANNEL_TIME	10
@@ -2261,6 +2380,10 @@ enum nl80211_band_attr {
  *	connected to an AP with DFS and radar detection on the UNII band (it is
  *	up to user-space, i.e., wpa_supplicant to perform the required
  *	verifications)
+ * @NL80211_FREQUENCY_ATTR_NO_20MHZ: 20 MHz operation is not allowed
+ *	on this channel in current regulatory domain.
+ * @NL80211_FREQUENCY_ATTR_NO_10MHZ: 10 MHz operation is not allowed
+ *	on this channel in current regulatory domain.
  * @NL80211_FREQUENCY_ATTR_MAX: highest frequency attribute number
  *	currently defined
  * @__NL80211_FREQUENCY_ATTR_AFTER_LAST: internal use
@@ -2288,6 +2411,8 @@ enum nl80211_frequency_attr {
 	NL80211_FREQUENCY_ATTR_DFS_CAC_TIME,
 	NL80211_FREQUENCY_ATTR_INDOOR_ONLY,
 	NL80211_FREQUENCY_ATTR_GO_CONCURRENT,
+	NL80211_FREQUENCY_ATTR_NO_20MHZ,
+	NL80211_FREQUENCY_ATTR_NO_10MHZ,
 
 	/* keep last */
 	__NL80211_FREQUENCY_ATTR_AFTER_LAST,
@@ -3036,7 +3161,6 @@ enum nl80211_mfp {
 enum nl80211_wpa_versions {
 	NL80211_WPA_VERSION_1 = 1 << 0,
 	NL80211_WPA_VERSION_2 = 1 << 1,
-	NL80211_WAPI_VERSION_1 = 1 << 2,
 };
 
 /**
@@ -3740,38 +3864,6 @@ enum nl80211_ap_sme_features {
  * @NL80211_FEATURE_AP_MODE_CHAN_WIDTH_CHANGE: This driver supports dynamic
  *	channel bandwidth change (e.g., HT 20 <-> 40 MHz channel) during the
  *	lifetime of a BSS.
- * @NL80211_FEATURE_DS_PARAM_SET_IE_IN_PROBES: This device adds a DS Parameter
- *	Set IE to probe requests.
- * @NL80211_FEATURE_WFA_TPC_IE_IN_PROBES: This device adds a WFA TPC Report IE
- *	to probe requests.
- * @NL80211_FEATURE_QUIET: This device, in client mode, supports Quiet Period
- *	requests sent to it by an AP.
- * @NL80211_FEATURE_TX_POWER_INSERTION: This device is capable of inserting the
- *	current tx power value into the TPC Report IE in the spectrum
- *	management TPC Report action frame, and in the Radio Measurement Link
- *	Measurement Report action frame.
- * @NL80211_FEATURE_ACKTO_ESTIMATION: This driver supports dynamic ACK timeout
- *	estimation (dynack). %NL80211_ATTR_WIPHY_DYN_ACK flag attribute is used
- *	to enable dynack.
- * @NL80211_FEATURE_STATIC_SMPS: Device supports static spatial
- *	multiplexing powersave, ie. can turn off all but one chain
- *	even on HT connections that should be using more chains.
- * @NL80211_FEATURE_DYNAMIC_SMPS: Device supports dynamic spatial
- *	multiplexing powersave, ie. can turn off all but one chain
- *	and then wake the rest up as required after, for example,
- *	rts/cts handshake.
- * @NL80211_FEATURE_SCAN_RANDOM_MAC_ADDR: This device/driver supports using a
- *	random MAC address during scan (if the device is unassociated); the
- *	%NL80211_SCAN_FLAG_RANDOM_ADDR flag may be set for scans and the MAC
- *	address mask/value will be used.
- * @NL80211_FEATURE_SCHED_SCAN_RANDOM_MAC_ADDR: This device/driver supports
- *	using a random MAC address for every scan iteration during scheduled
- *	scan (while not associated), the %NL80211_SCAN_FLAG_RANDOM_ADDR may
- *	be set for scheduled scan and the MAC address mask/value will be used.
- * @NL80211_FEATURE_ND_RANDOM_MAC_ADDR: This device/driver supports using a
- *	random MAC address for every scan iteration during "net detect", i.e.
- *	scan in unassociated WoWLAN, the %NL80211_SCAN_FLAG_RANDOM_ADDR may
- *	be set for scheduled scan and the MAC address mask/value will be used.
  */
 enum nl80211_feature_flags {
 	NL80211_FEATURE_SK_TX_STATUS			= 1 << 0,
@@ -3792,16 +3884,6 @@ enum nl80211_feature_flags {
 	NL80211_FEATURE_FULL_AP_CLIENT_STATE		= 1 << 15,
 	NL80211_FEATURE_USERSPACE_MPM			= 1 << 16,
 	NL80211_FEATURE_AP_MODE_CHAN_WIDTH_CHANGE	= 1 << 18,
-	NL80211_FEATURE_DS_PARAM_SET_IE_IN_PROBES	= 1 << 19,
-	NL80211_FEATURE_WFA_TPC_IE_IN_PROBES		= 1 << 20,
-	NL80211_FEATURE_QUIET				= 1 << 21,
-	NL80211_FEATURE_TX_POWER_INSERTION		= 1 << 22,
-	NL80211_FEATURE_ACKTO_ESTIMATION		= 1 << 23,
-	NL80211_FEATURE_STATIC_SMPS			= 1 << 24,
-	NL80211_FEATURE_DYNAMIC_SMPS			= 1 << 25,
-	NL80211_FEATURE_SCAN_RANDOM_MAC_ADDR		= 1 << 29,
-	NL80211_FEATURE_SCHED_SCAN_RANDOM_MAC_ADDR	= 1 << 30,
-	NL80211_FEATURE_ND_RANDOM_MAC_ADDR		= 1 << 31,
 };
 
 /**
@@ -3976,6 +4058,22 @@ enum nl80211_crit_proto_id {
 struct nl80211_vendor_cmd_info {
 	__u32 vendor_id;
 	__u32 subcmd;
+};
+
+/**
+ * enum nl80211_tdls_peer_capability - TDLS peer flags.
+ *
+ * Used by tdls_mgmt() to determine which conditional elements need
+ * to be added to TDLS Setup frames.
+ *
+ * @NL80211_TDLS_PEER_HT: TDLS peer is HT capable.
+ * @NL80211_TDLS_PEER_VHT: TDLS peer is VHT capable.
+ * @NL80211_TDLS_PEER_WMM: TDLS peer is WMM capable.
+ */
+enum nl80211_tdls_peer_capability {
+	NL80211_TDLS_PEER_HT = 1<<0,
+	NL80211_TDLS_PEER_VHT = 1<<1,
+	NL80211_TDLS_PEER_WMM = 1<<2,
 };
 
 #endif /* __LINUX_NL80211_H */
