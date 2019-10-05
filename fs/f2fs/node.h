@@ -62,16 +62,16 @@ struct nat_entry {
 	struct node_info ni;	/* in-memory node information */
 };
 
-#define nat_get_nid(nat)		((nat)->ni.nid)
-#define nat_set_nid(nat, n)		((nat)->ni.nid = (n))
-#define nat_get_blkaddr(nat)		((nat)->ni.blk_addr)
-#define nat_set_blkaddr(nat, b)		((nat)->ni.blk_addr = (b))
-#define nat_get_ino(nat)		((nat)->ni.ino)
-#define nat_set_ino(nat, i)		((nat)->ni.ino = (i))
-#define nat_get_version(nat)		((nat)->ni.version)
-#define nat_set_version(nat, v)		((nat)->ni.version = (v))
+#define nat_get_nid(nat)		(nat->ni.nid)
+#define nat_set_nid(nat, n)		(nat->ni.nid = n)
+#define nat_get_blkaddr(nat)		(nat->ni.blk_addr)
+#define nat_set_blkaddr(nat, b)		(nat->ni.blk_addr = b)
+#define nat_get_ino(nat)		(nat->ni.ino)
+#define nat_set_ino(nat, i)		(nat->ni.ino = i)
+#define nat_get_version(nat)		(nat->ni.version)
+#define nat_set_version(nat, v)		(nat->ni.version = v)
 
-#define inc_node_version(version)	(++(version))
+#define inc_node_version(version)	(++version)
 
 static inline void copy_node_info(struct node_info *dst,
 						struct node_info *src)
@@ -174,7 +174,7 @@ static inline void next_free_nid(struct f2fs_sb_info *sbi, nid_t *nid)
 		spin_unlock(&nm_i->nid_list_lock);
 		return;
 	}
-	fnid = list_first_entry(&nm_i->nid_list[FREE_NID_LIST],
+	fnid = list_entry(nm_i->nid_list[FREE_NID_LIST].next,
 						struct free_nid, list);
 	*nid = fnid->nid;
 	spin_unlock(&nm_i->nid_list_lock);
@@ -209,7 +209,7 @@ static inline pgoff_t current_nat_addr(struct f2fs_sb_info *sbi, nid_t start)
 	block_off = NAT_BLOCK_OFFSET(start);
 
 	block_addr = (pgoff_t)(nm_i->nat_blkaddr +
-		(block_off << 1) -
+		(seg_off << sbi->log_blocks_per_seg << 1) +
 		(block_off & (sbi->blocks_per_seg - 1)));
 
 	if (f2fs_test_bit(block_off, nm_i->nat_bitmap))
@@ -237,9 +237,6 @@ static inline void set_to_next_nat(struct f2fs_nm_info *nm_i, nid_t start_nid)
 	unsigned int block_off = NAT_BLOCK_OFFSET(start_nid);
 
 	f2fs_change_bit(block_off, nm_i->nat_bitmap);
-#ifdef CONFIG_F2FS_CHECK_FS
-	f2fs_change_bit(block_off, nm_i->nat_bitmap_mir);
-#endif
 }
 
 static inline nid_t ino_of_node(struct page *node_page)
@@ -303,11 +300,14 @@ static inline void fill_node_footer_blkaddr(struct page *page, block_t blkaddr)
 {
 	struct f2fs_checkpoint *ckpt = F2FS_CKPT(F2FS_P_SB(page));
 	struct f2fs_node *rn = F2FS_NODE(page);
-	__u64 cp_ver = cur_cp_version(ckpt);
+	size_t crc_offset = le32_to_cpu(ckpt->checksum_offset);
+	__u64 cp_ver = le64_to_cpu(ckpt->checkpoint_ver);
 
-	if (__is_set_ckpt_flags(ckpt, CP_CRC_RECOVERY_FLAG))
-		cp_ver |= (cur_cp_crc(ckpt) << 32);
-
+	if (__is_set_ckpt_flags(ckpt, CP_CRC_RECOVERY_FLAG)) {
+		__u64 crc = le32_to_cpu(*((__le32 *)
+				((unsigned char *)ckpt + crc_offset)));
+		cp_ver |= (crc << 32);
+	}
 	rn->footer.cp_ver = cpu_to_le64(cp_ver);
 	rn->footer.next_blkaddr = cpu_to_le32(blkaddr);
 }
@@ -315,11 +315,14 @@ static inline void fill_node_footer_blkaddr(struct page *page, block_t blkaddr)
 static inline bool is_recoverable_dnode(struct page *page)
 {
 	struct f2fs_checkpoint *ckpt = F2FS_CKPT(F2FS_P_SB(page));
+	size_t crc_offset = le32_to_cpu(ckpt->checksum_offset);
 	__u64 cp_ver = cur_cp_version(ckpt);
 
-	if (__is_set_ckpt_flags(ckpt, CP_CRC_RECOVERY_FLAG))
-		cp_ver |= (cur_cp_crc(ckpt) << 32);
-
+	if (__is_set_ckpt_flags(ckpt, CP_CRC_RECOVERY_FLAG)) {
+		__u64 crc = le32_to_cpu(*((__le32 *)
+				((unsigned char *)ckpt + crc_offset)));
+		cp_ver |= (crc << 32);
+	}
 	return cp_ver == cpver_of_node(page);
 }
 
@@ -349,7 +352,7 @@ static inline bool IS_DNODE(struct page *node_page)
 	unsigned int ofs = ofs_of_node(node_page);
 
 	if (f2fs_has_xattr_block(ofs))
-		return true;
+		return false;
 
 	if (ofs == 3 || ofs == 4 + NIDS_PER_BLOCK ||
 			ofs == 5 + 2 * NIDS_PER_BLOCK)
