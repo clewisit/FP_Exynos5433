@@ -798,13 +798,9 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 			return ERR_PTR(-ENOMEM);
 		}
 	}
-	if (flags & MS_KERNMOUNT) {
-#ifdef CONFIG_RKP_NS_PROT
-		rkp_set_mnt_flags(mnt->mnt,MNT_INTERNAL);
-#else
+	if (flags & MS_KERNMOUNT)
 		mnt->mnt.mnt_flags = MNT_INTERNAL;
-#endif
-	}
+
 	root = mount_fs(type, flags, name, &mnt->mnt, data);
 	if (IS_ERR(root)) {
 		kfree(mnt->mnt.data);
@@ -1475,7 +1471,7 @@ struct vfsmount *collect_mounts(struct path *path)
 		tree = ERR_PTR(-EINVAL);
 	else
 		tree = copy_tree(real_mount(path->mnt), path->dentry,
-				CL_COPY_ALL | CL_PRIVATE);
+				 CL_COPY_ALL | CL_PRIVATE);
 	namespace_unlock();
 	if (IS_ERR(tree))
 		return ERR_CAST(tree);
